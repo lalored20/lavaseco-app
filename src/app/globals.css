@@ -1,0 +1,45 @@
+@import "tailwindcss";
+
+:root {
+  --background: #ffffff;
+  --foreground: #171717;
+}
+
+@theme inline {
+  --color-background: var(--background);
+  --color-foreground: var(--foreground);
+  --font-sans: var(--font-geist-sans);
+  --font-mono: var(--font-geist-mono);
+
+  /* Orchid Palette (User Defined) */
+  --color-orchid-50: #d7e0fc;
+  /* Fondo Principal */
+  --color-orchid-100: #d7e0fc;
+  --color-orchid-200: #b2baf9;
+  --color-orchid-300: #8c85f7;
+  /* Color 2 */
+  --color-orchid-400: #7663e9;
+  --color-orchid-500: #6140dc;
+  /* Color 3 */
+  --color-orchid-600: #5536d3;
+  --color-orchid-700: #4b27ca;
+  /* Color 4 */
+  --color-orchid-800: #3d1fa8;
+  --color-orchid-900: #2f1787;
+  --color-orchid-950: #1d0d5c;
+}
+
+@media (prefers-color-scheme: dark) {
+  :root {
+    --background: #0a0a0a;
+    --foreground: #ededed;
+  }
+}
+
+body {
+  background: var(--color-orchid-50);
+  /* User requested main background */
+  color: #000000;
+  /* User requested black text */
+  font-family: Arial, Helvetica, sans-serif;
+}
