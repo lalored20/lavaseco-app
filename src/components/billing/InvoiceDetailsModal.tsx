@@ -754,6 +754,8 @@ export function InvoiceDetailsModal({ invoice, isOpen, onClose, isLogisticsView 
                                 !isReadyForDelivery && !isDelivered &&
                                 localInvoice?.status?.toLowerCase() !== 'delivered' &&
                                 localInvoice?.status?.toLowerCase() !== 'entregado' &&
+                                localInvoice?.status !== 'PAGADO' &&
+                                localInvoice?.paymentStatus !== 'PAGADO' &&
                                 localInvoice?.logisticsStatus !== 'delivered' &&
                                 !localStorage.getItem(`lavaseco_verified_${localInvoice.id}`) &&
                                 !localStorage.getItem(`lavaseco_verified_FOLIO_${localInvoice.ticketNumber}`) && (
