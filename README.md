@@ -1,36 +1,248 @@
-This is a [Next.js](https://nextjs.org) project bootstrapped with [`create-next-app`](https://nextjs.org/docs/app/api-reference/cli/create-next-app).
+# Lavaseco Orquideas - Sistema de Gestión Premium
 
-## Getting Started
+Sistema completo de gestión para lavandería con arquitectura offline-first, diseñado para ofrecer una experiencia premium y sin interrupciones.
 
-First, run the development server:
+## 🚀 Características Principales
 
+### ✨ Módulos Implementados
+
+- **Recepción Rápida** - Creación express de facturas en mostrador
+- **Facturación Completa** - Sistema avanzado con pagos, abonos y notas
+- **Logística - Organizar Entrada** - Verificación item por item con alertas de urgencia
+- **Logística - Prendas Faltantes** - Gestión de items pendientes de recibir
+- **Entrega** - Finalización del servicio y entrega al cliente
+
+### 🔥 Tecnologías
+
+- **Next.js 16** - Framework React con App Router
+- **TypeScript** - Tipado estático
+- **Tailwind CSS 4** - Estilos modernos y responsivos
+- **Framer Motion** - Animaciones fluidas
+- **Dexie.js** - Base de datos local (IndexedDB)
+- **Supabase** - Backend y sincronización en la nube
+- **jsPDF** - Generación de PDFs
+
+### 💎 Características Técnicas
+
+- ✅ **Offline-First** - Funciona sin internet, sincroniza automáticamente
+- ✅ **Dual PDF** - Ticket 80mm (térmicas) y Carta (estándar)
+- ✅ **Item Tracking** - Seguimiento granular de cada prenda
+- ✅ **Smart Alerts** - Sistema inteligente de alertas por urgencia
+- ✅ **Auto-Save** - Guardado automático de borradores
+- ✅ **Activity Logs** - Historial completo de acciones
+
+## 📦 Instalación
+
+### Requisitos Previos
+
+- Node.js 18+ 
+- npm o pnpm
+- Cuenta de Supabase (para sincronización)
+
+### Pasos
+
+1. **Clonar el repositorio**
 ```bash
-npm run dev
-# or
-yarn dev
-# or
-pnpm dev
-# or
-bun dev
+git clone [url-del-repo]
+cd lavaseco-app
 ```
 
-Open [http://localhost:3000](http://localhost:3000) with your browser to see the result.
+2. **Instalar dependencias**
+```bash
+npm install
+```
 
-You can start editing the page by modifying `app/page.tsx`. The page auto-updates as you edit the file.
+3. **Configurar variables de entorno**
 
-This project uses [`next/font`](https://nextjs.org/docs/app/building-your-application/optimizing/fonts) to automatically optimize and load [Geist](https://vercel.com/font), a new font family for Vercel.
+Crear archivo `.env` con:
+```env
+# Supabase
+NEXT_PUBLIC_SUPABASE_URL=tu_url_de_supabase
+NEXT_PUBLIC_SUPABASE_ANON_KEY=tu_anon_key
 
-## Learn More
+# Database
+DATABASE_URL="file:./dev.db"
 
-To learn more about Next.js, take a look at the following resources:
+# Opcional: APIs adicionales
+OPENAI_API_KEY=tu_api_key_opcional
+```
 
-- [Next.js Documentation](https://nextjs.org/docs) - learn about Next.js features and API.
-- [Learn Next.js](https://nextjs.org/learn) - an interactive Next.js tutorial.
+4. **Inicializar base de datos**
+```bash
+npx prisma generate
+npx prisma db push
+```
 
-You can check out [the Next.js GitHub repository](https://github.com/vercel/next.js) - your feedback and contributions are welcome!
+5. **Ejecutar en desarrollo**
+```bash
+npm run dev
+```
 
-## Deploy on Vercel
+La aplicación estará disponible en `http://localhost:3000`
 
-The easiest way to deploy your Next.js app is to use the [Vercel Platform](https://vercel.com/new?utm_medium=default-template&filter=next.js&utm_source=create-next-app&utm_campaign=create-next-app-readme) from the creators of Next.js.
+## 🎯 Uso Rápido
 
-Check out our [Next.js deployment documentation](https://nextjs.org/docs/app/building-your-application/deploying) for more details.
+### Flujo Completo
+
+1. **Recepción** (`/dashboard/reception`)
+   - Crear factura rápida con datos del cliente
+   - Agregar prendas con cantidades y precios
+   - Definir fecha de entrega
+   - Generar PDF automáticamente
+
+2. **Organizar Entrada** (`/dashboard/logistics/organize`)
+   - Revisar facturas pendientes
+   - Marcar cada prenda como "Recibido" o "Falta"
+   - Completar revisión cuando todo esté listo
+
+3. **Prendas Faltantes** (`/dashboard/logistics/missing`)
+   - Ver items que no llegaron
+   - Marcar como "Ya llegó" cuando aparezcan
+
+4. **Entrega** (`/dashboard/delivery`)
+   - Ver prendas listas para entregar
+   - Registrar pagos finales si hay saldo
+   - Entregar al cliente
+
+## 🛠️ Scripts Disponibles
+
+```bash
+npm run dev          # Desarrollo con Turbo
+npm run build        # Build de producción
+npm run start        # Servidor de producción
+npm run lint         # Linter
+```
+
+### Script de Inicio Rápido (Windows)
+
+Ejecutar `iniciar.bat` para:
+- Abrir navegador automáticamente
+- Iniciar servidor de desarrollo
+- Ver logs en consola
+
+## 📁 Estructura del Proyecto
+
+```
+lavaseco-app/
+├── src/
+│   ├── app/
+│   │   ├── dashboard/
+│   │   │   ├── reception/        # Módulo de recepción
+│   │   │   ├── billing-a/        # Facturación completa
+│   │   │   ├── logistics/        # Logística
+│   │   │   │   ├── organize/     # Organizar entrada
+│   │   │   │   └── missing/      # Prendas faltantes
+│   │   │   └── delivery/         # Entrega
+│   │   └── login/                # Autenticación
+│   ├── components/
+│   │   ├── billing/              # Componentes de facturación
+│   │   ├── dashboard/            # Componentes del dashboard
+│   │   └── ui/                   # Componentes UI base
+│   ├── hooks/
+│   │   ├── useInvoices.ts        # Hook principal de facturas
+│   │   ├── useInvoiceSync.ts     # Sincronización offline
+│   │   └── useDebounce.ts        # Utilidades
+│   ├── lib/
+│   │   ├── actions/              # Server actions
+│   │   ├── billing/              # Lógica de negocio
+│   │   └── pdfGenerator.ts       # Generación de PDFs
+│   └── prisma/
+│       └── schema.prisma         # Esquema de base de datos
+├── public/                       # Assets estáticos
+├── iniciar.bat                   # Script de inicio (Windows)
+└── package.json
+```
+
+## 🔐 Autenticación
+
+El sistema incluye autenticación básica:
+
+- **Usuario:** Configurado en Supabase
+- **Contraseña:** Configurada en Supabase
+
+Para desarrollo local, puedes usar el modo de prueba o configurar usuarios en Supabase.
+
+## 📊 Base de Datos
+
+### Modelos Principales
+
+- **User** - Usuarios del sistema
+- **Order** (Invoice) - Facturas/Órdenes
+- **OrderItem** - Items de cada factura
+- **Client** - Clientes
+- **PaymentLog** - Historial de pagos
+
+### Sincronización
+
+El sistema usa una arquitectura híbrida:
+- **Local:** Dexie.js (IndexedDB) para operación offline
+- **Cloud:** Supabase para sincronización y backup
+- **Sync:** Automático cada 60 segundos cuando hay conexión
+
+## 🎨 Personalización
+
+### Colores del Tema
+
+Editar `tailwind.config.ts`:
+
+```typescript
+colors: {
+  orchid: {
+    50: '#faf5ff',
+    100: '#f3e8ff',
+    // ... más tonos
+    900: '#581c87',
+  }
+}
+```
+
+### Logo
+
+Reemplazar archivo en `public/logo.png`
+
+## 🐛 Solución de Problemas
+
+### Error: "Cannot find module 'prisma'"
+
+```bash
+npx prisma generate
+```
+
+### Error: "Supabase connection failed"
+
+Verificar variables de entorno en `.env`
+
+### PDFs no se generan
+
+Verificar que jsPDF está instalado:
+```bash
+npm install jspdf jspdf-autotable
+```
+
+## 📝 Próximas Mejoras
+
+- [ ] Tests automatizados (Jest + React Testing Library)
+- [ ] Módulo de reportes y estadísticas
+- [ ] Notificaciones push
+- [ ] App móvil (PWA/React Native)
+- [ ] Integración con pasarelas de pago
+- [ ] Sistema de inventario
+
+## 🤝 Contribuir
+
+Este es un proyecto privado. Para contribuir, contactar al administrador.
+
+## 📄 Licencia
+
+Propietario: Lavaseco Orquideas
+Todos los derechos reservados.
+
+## 🆘 Soporte
+
+Para soporte técnico, contactar a: [email de soporte]
+
+---
+
+**Versión:** 1.0.0
+**Última actualización:** Enero 2026
+**Desarrollado con ❤️ para Lavaseco Orquideas**

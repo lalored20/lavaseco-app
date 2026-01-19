@@ -103,8 +103,8 @@ export function GeminiInput({ onSend, placeholder, className, isThinking }: Gemi
             e.preventDefault(); e.stopPropagation();
             setIsDragging(false);
             dragCounter.current = 0;
-            if (e.dataTransfer?.files?.length > 0) {
-                setPendingFiles(prev => [...prev, ...Array.from(e.dataTransfer.files)]);
+            if (e.dataTransfer?.files && e.dataTransfer.files.length > 0) {
+                setPendingFiles(prev => [...prev, ...Array.from(e.dataTransfer!.files)]);
             }
         };
 

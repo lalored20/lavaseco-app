@@ -1,10 +1,7 @@
-
 import { NextResponse } from 'next/server';
-import { PrismaClient } from '@prisma/client';
+import { prisma } from '@/lib/prisma'; // Use Singleton!
 import { sendVerificationEmail } from '@/lib/email';
 import bcrypt from 'bcryptjs';
-
-const prisma = new PrismaClient();
 
 function generateCode() {
     return Math.floor(100000 + Math.random() * 900000).toString();
@@ -12,89 +9,86 @@ function generateCode() {
 
 export async function POST(req: Request) {
     try {
-        const { email, password } = await req.json();
+        console.log("🟢 Login Request Received");
+        const body = await req.json();
+        const { email, password } = body;
 
         if (!email || !password) {
-            return NextResponse.json({ error: "Email y contraseña requeridos" }, { status: 400 });
+            return NextResponse.json({ error: "Datos incompletos" }, { status: 400 });
         }
 
+        console.log("🔍 Looking for user:", email);
         const user = await prisma.user.findUnique({ where: { email } });
 
-        // SCENARIO 1: NEW USER (First time)
+        // --- NEW USER FLOW ---
         if (!user) {
+            console.log("👤 New User detected. Creating...");
             const code = generateCode();
             const hashedPassword = await bcrypt.hash(password, 10);
 
-            // Create unverified user
-            await prisma.user.create({
+            const newUser = await prisma.user.create({
                 data: {
                     email,
                     passwordHash: hashedPassword,
-                    isVerified: false,
                     verificationCode: code,
-                    lastVerifSentAt: new Date(),
-                    verifAttempts: 1,
+                    isVerified: false,
+                    verifAttempts: 0
                 }
             });
+            console.log("✅ User created:", newUser.id);
 
-            // Send Email (Try/Catch wrapper to allow login even if email fails in DEV)
-            let sent = false;
-            try {
-                sent = await sendVerificationEmail(email, code);
-            } catch (e) {
-                console.error("Email fail", e);
-            }
-
-            // DEBUG MODE: Return code in message if email fails or always for now to unblock user
-            const debugMsg = sent ? "Código enviado a tu correo." : `(DEBUG) Google bloqueó el correo. Tu código es: ${code}`;
+            // Email attempt (Background - Fire & Forget)
+            sendVerificationEmail(email, code).catch(err =>
+                console.error("⚠️ Background Email failed:", err)
+            );
 
             return NextResponse.json({
                 status: 'VERIFY_NEEDED',
-                message: debugMsg
+                message: "Código enviado a tu correo"
             });
         }
 
-        // SCENARIO 2: EXISTING USER
-        // Check Password
+        // --- EXISTING USER FLOW ---
+        console.log("👤 Existing User found.");
         const isValid = await bcrypt.compare(password, user.passwordHash);
         if (!isValid) {
+            console.warn("🔐 Invalid Password");
             return NextResponse.json({ error: "Contraseña incorrecta" }, { status: 401 });
         }
 
-        // Check if verified
         if (!user.isVerified) {
-            // Resend code if needed? Or just ask for the old one? 
-            // Logic: Generate new code if it's been a while, or just tell them to verify.
-            // For simplicity: Generate new code and send
+            console.log("🔒 User not verified. Sending new code.");
             const code = generateCode();
-            await prisma.user.update({
-                where: { email },
-                data: { verificationCode: code, lastVerifSentAt: new Date() }
-            });
-            let sent = false;
-            try {
-                sent = await sendVerificationEmail(email, code);
-            } catch (e) {
-                console.error("Email fail", e);
-            }
 
-            const debugMsg = sent ? "Cuenta no verificada. Código enviado." : `(DEBUG) Código: ${code}`;
+            // Parallel execution: Update DB AND Send Email together, but wait for DB only
+            await prisma.user.update({
+                where: { id: user.id },
+                data: { verificationCode: code }
+            });
+
+            // Email attempt (Background - Fire & Forget)
+            sendVerificationEmail(email, code).catch(err =>
+                console.error("⚠️ Background Email failed:", err)
+            );
 
             return NextResponse.json({
                 status: 'VERIFY_NEEDED',
-                message: debugMsg
+                message: "Verificación requerida."
             });
         }
 
-        // Success
+        console.log("🔓 Login Successful");
         return NextResponse.json({
             status: 'SUCCESS',
-            message: "Bienvenido de nuevo.",
+            message: "Bienvenido",
             user: { id: user.id, email: user.email }
         });
 
-    } catch (error) {
-        console.error(error);
-        return NextResponse.json({ error: "Error en el servidor" }, { status: 500 });
+    } catch (error: any) {
+        console.error("🔴 SERVER ERROR:", error);
+        return NextResponse.json({
+            error: "Error Interno del Servidor",
+            details: error.message
+        }, { status: 500 });
     }
 }

@@ -1,0 +1,10 @@
+
+model PaymentLog {
+  id          String   @id @default(cuid())
+  orderId     String
+  order       Order    @relation(fields: [orderId], references: [id])
+  amount      Float
+  type        String   @default("ABONO") // "ABONO" or "CANCELACION"
+  createdAt   DateTime @default(now())
+  note        String?
+}

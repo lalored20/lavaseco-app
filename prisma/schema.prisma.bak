@@ -1,0 +1,76 @@
+// This is your Prisma schema file,
+// learn more about it in the docs: https://pris.ly/d/prisma-schema
+
+generator client {
+  provider = "prisma-client-js"
+  engineType = "library"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+model User {
+  id                String   @id @default(cuid())
+  email             String   @unique
+  passwordHash      String
+  
+  isVerified        Boolean  @default(false)
+  verificationCode  String?
+  
+  // Security & Rate Limiting
+  verifAttempts     Int      @default(0)
+  lastVerifSentAt   DateTime?
+  lockoutUntil      DateTime?
+  
+  createdAt         DateTime @default(now())
+  updatedAt         DateTime @updatedAt
+}
+
+model Client {
+  id        String   @id @default(cuid())
+  name      String
+  phone     String?
+  address   String?
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+  orders    Order[]
+}
+
+model Order {
+  id            Int      @id @default(autoincrement()) // Consecutivo amigable para el cliente (e.g. Recibo #1045)
+  uuid          String   @unique @default(uuid())      // ID único interno
+  
+  createdAt     DateTime @default(now())               // Fecha Ingreso
+  scheduledDate DateTime?                              // Fecha Prometida
+  deliveredDate DateTime?                              // Fecha Real Entrega
+  
+  status        String   @default("PENDIENTE")         // PENDIENTE, EN_PROCESO, LISTO, ENTREGADO
+  location      String   @default("RECEPCION")         // RECEPCION, PLANTA, ALMACEN
+  
+  totalValue    Float    @default(0)
+  paidAmount    Float    @default(0)
+  paymentStatus String   @default("PENDIENTE")         // PENDIENTE, PARCIAL, PAGADO
+  
+  clientId      String
+  client        Client   @relation(fields: [clientId], references: [id])
+  
+  items         OrderItem[]
+}
+
+model OrderItem {
+  id          String  @id @default(cuid())
+  orderId     Int
+  order       Order   @relation(fields: [orderId], references: [id])
+  
+  quantity    Int     @default(1)
+  type        String  // Camisa, Pantalón, Edredón, etc.
+  color       String? // Azul, Rojo, Estampado
+  features    String? // Marca, Talla, etc.
+  
+  defects     String? // Roto, Manchado, Descosido (Crucial para reclamos)
+  notes       String? // Instrucciones especiales
+  
+  price       Float   @default(0)
+}

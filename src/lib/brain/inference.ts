@@ -1,39 +1,44 @@
-import { LocalGraph, getGraph } from './graph';
+import { RemoteGraph, getGraph } from './graph';
 import { KnowledgeGap } from './types';
 
 export class ActiveInference {
-    graph: LocalGraph;
+    graph: RemoteGraph;
 
-    constructor(graph?: LocalGraph) {
+    constructor(graph?: RemoteGraph) {
         this.graph = graph || getGraph();
     }
 
-    analyzeGaps(): KnowledgeGap[] {
+    async analyzeGaps(): Promise<KnowledgeGap[]> {
         const gaps: KnowledgeGap[] = [];
 
-        // 1. Detect Isolated Nodes (Islands of Knowledge)
+        // Fetch current state from DB
+        const nodes = await this.graph.getNodes({ limit: 200 });
+        const relations = await this.graph.getRelations();
+
+        const nodeMap = new Map(nodes.map(n => [n.id, n]));
+
+        // 1. Detect Isolated Nodes
         const connected = new Set<string>();
-        this.graph.relations.forEach(r => {
+        relations.forEach(r => {
             connected.add(r.source);
             connected.add(r.target);
         });
 
-        Object.keys(this.graph.nodes).forEach(key => {
-            if (!connected.has(key)) {
+        nodes.forEach(node => {
+            if (!connected.has(node.id)) {
                 gaps.push({
                     gap_type: 'isolated_node',
                     severity: 'warning',
-                    description: `'${this.graph.nodes[key].name}' está aislado - sin conexiones.`,
-                    affected_nodes: [key],
-                    suggested_action: `Conectar '${this.graph.nodes[key].name}' con otros conceptos.`,
+                    description: `'${node.name}' está aislado - sin conexiones.`,
+                    affected_nodes: [node.id],
+                    suggested_action: `Conectar '${node.name}' con otros conceptos.`,
                     priority: 5
                 });
             }
         });
 
-        // 2. Business Logic Gaps (Lavaseco Specific)
-        // Example: Clients without phone numbers
-        Object.values(this.graph.nodes).forEach(node => {
+        // 2. Business Logic Gaps
+        nodes.forEach(node => {
             if (node.type === 'Client' && !node.properties.phone) {
                 gaps.push({
                     gap_type: 'missing_data',

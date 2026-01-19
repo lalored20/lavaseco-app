@@ -1,13 +1,46 @@
-// This is your Prisma schema file,
-// learn more about it in the docs: https://pris.ly/d/prisma-schema
-
 generator client {
-  provider = "prisma-client-js"
+  provider   = "prisma-client-js"
+  engineType = "library"
 }
 
 datasource db {
-  provider = "sqlite"
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
 }
+
+/// This model contains row level security and requires additional setup for migrations. Visit https://pris.ly/d/row-level-security for more info.
+model memory_nodes {
+  id         String                 @id
+  name       String
+  type       String?                @default("Concept")
+  properties Json?                  @default("{}")
+  created_at DateTime?              @default(now()) @db.Timestamptz(6)
+  updated_at DateTime?              @default(now()) @db.Timestamptz(6)
+  embedding  Unsupported("vector")?
+  importance Float?                 @default(1.0)
+  metadata   Json?                  @default("{}")
+
+  @@index([name], map: "idx_nodes_name")
+  @@index([type], map: "idx_nodes_type")
+}
+
+/// This model contains row level security and requires additional setup for migrations. Visit https://pris.ly/d/row-level-security for more info.
+model memory_relations {
+  id           String    @id
+  source       String
+  relationship String
+  target       String
+  context      String?   @default("")
+  confidence   Float?    @default(1.0)
+  created_at   DateTime? @default(now()) @db.Timestamptz(6)
+
+  @@index([relationship], map: "idx_relations_relationship")
+  @@index([source], map: "idx_relations_source")
+  @@index([target], map: "idx_relations_target")
+}
+
+// --- LAVASECO APP MODELS ---
+
 
 model User {
   id                String   @id @default(cuid())
@@ -28,6 +61,7 @@ model User {
 
 model Client {
   id        String   @id @default(cuid())
+  cedula    String?  @unique // Identificación oficial (opcional pero recomendada)
   name      String
   phone     String?
   address   String?
@@ -36,39 +70,64 @@ model Client {
   orders    Order[]
 }
 
+model Expense {
+  id          String   @id @default(uuid())
+  description String
+  amount      Float
+  category    String?  // 'Alimentacion', 'Transporte', 'Suministros', etc.
+  date        DateTime @default(now())
+  
+  // Who authorized it? (Optional)
+  authorizedBy String? 
+  
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+}
+
 model Order {
-  id            Int      @id @default(autoincrement()) // Consecutivo amigable para el cliente (e.g. Recibo #1045)
-  uuid          String   @unique @default(uuid())      // ID único interno
+  id            String   @id @default(uuid()) // UUID: Identificador único universal (OFFLINE COMPATIBLE)
+  ticketNumber  Int      @default(autoincrement()) // Folio humano (Recibo #1045) - Solo informativo
   
-  createdAt     DateTime @default(now())               // Fecha Ingreso
-  scheduledDate DateTime?                              // Fecha Prometida
-  deliveredDate DateTime?                              // Fecha Real Entrega
+  createdAt     DateTime @default(now())               
+  scheduledDate DateTime?                              
+  deliveredDate DateTime?                              
   
-  status        String   @default("PENDIENTE")         // PENDIENTE, EN_PROCESO, LISTO, ENTREGADO
-  location      String   @default("RECEPCION")         // RECEPCION, PLANTA, ALMACEN
+  status        String   @default("PENDIENTE")         
+  location      String   @default("RECEPCION")         
   
   totalValue    Float    @default(0)
   paidAmount    Float    @default(0)
-  paymentStatus String   @default("PENDIENTE")         // PENDIENTE, PARCIAL, PAGADO
+  paymentStatus String   @default("PENDIENTE")         
   
   clientId      String
   client        Client   @relation(fields: [clientId], references: [id])
   
   items         OrderItem[]
+  payments      PaymentLog[]
 }
 
 model OrderItem {
   id          String  @id @default(cuid())
-  orderId     Int
+  orderId     String  // Relación por UUID
   order       Order   @relation(fields: [orderId], references: [id])
   
   quantity    Int     @default(1)
-  type        String  // Camisa, Pantalón, Edredón, etc.
-  color       String? // Azul, Rojo, Estampado
-  features    String? // Marca, Talla, etc.
+  type        String  
+  color       String? 
+  features    String? 
   
-  defects     String? // Roto, Manchado, Descosido (Crucial para reclamos)
-  notes       String? // Instrucciones especiales
+  defects     String? 
+  notes       String? 
   
   price       Float   @default(0)
+}
+
+model PaymentLog {
+  id          String   @id @default(cuid())
+  orderId     String
+  order       Order    @relation(fields: [orderId], references: [id])
+  amount      Float
+  type        String   @default("ABONO") // "ABONO" or "CANCELACION"
+  createdAt   DateTime @default(now())
+  note        String?
 }
