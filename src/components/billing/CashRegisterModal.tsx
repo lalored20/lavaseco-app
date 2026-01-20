@@ -39,6 +39,7 @@ export function CashRegisterModal({ isOpen, onClose, data }: CashRegisterModalPr
     const parsedTendered = parseInt(tenderedAmount.replace(/\./g, '')) || 0;
     const change = parsedTendered - currentAmount;
     const isSufficient = parsedTendered >= currentAmount;
+    const isZeroBalanceDelivery = data.amountToPay === 0;
 
     // Quick Cash Helpers
     const suggestions = [
@@ -50,7 +51,7 @@ export function CashRegisterModal({ isOpen, onClose, data }: CashRegisterModalPr
 
     // Handlers
     const handleNextStep = () => {
-        if (currentAmount <= 0) {
+        if (!isZeroBalanceDelivery && currentAmount <= 0) {
             toast.error("El monto debe ser mayor a 0");
             return;
         }
@@ -72,7 +73,7 @@ export function CashRegisterModal({ isOpen, onClose, data }: CashRegisterModalPr
     };
 
     const handleFinalConfirm = async () => {
-        if (step === 2 && method === 'Efectivo' && !isSufficient) {
+        if (!isZeroBalanceDelivery && step === 2 && method === 'Efectivo' && !isSufficient) {
             toast.error("El monto recibido es insuficiente");
             return;
         }
@@ -83,8 +84,10 @@ export function CashRegisterModal({ isOpen, onClose, data }: CashRegisterModalPr
                 amount: currentAmount,
                 tendered: step === 2 && method === 'Efectivo' ? parsedTendered : currentAmount,
                 change: step === 2 && method === 'Efectivo' ? Math.max(0, change) : 0,
-                method: method,
-                note: `Pago Registrado: ${method.toUpperCase()} - ${step === 2 ? `Recibido: $${parsedTendered}` : 'Configuración de pago'}`
+                method: isZeroBalanceDelivery ? 'Efectivo' : method, // Default to Efectivo/None for zero balance
+                note: isZeroBalanceDelivery
+                    ? 'Entrega sin cobro (Saldo $0)'
+                    : `Pago Registrado: ${method.toUpperCase()} - ${step === 2 ? `Recibido: $${parsedTendered}` : 'Configuración de pago'}`
             };
 
             await data.onConfirm(result);
@@ -126,8 +129,17 @@ export function CashRegisterModal({ isOpen, onClose, data }: CashRegisterModalPr
                         <div className="bg-slate-50 px-8 py-5 border-b border-slate-100 flex justify-between items-center shrink-0">
                             <div>
                                 <h2 className="text-xl font-black text-slate-800 tracking-tight flex items-center gap-2">
-                                    <Calculator className="text-orchid-600" size={24} />
-                                    {step === 1 ? 'Configurar Pago' : 'Confirmar Transacción'}
+                                    {isZeroBalanceDelivery ? (
+                                        <>
+                                            <Check className="text-emerald-500" size={24} />
+                                            Confirmar Entrega
+                                        </>
+                                    ) : (
+                                        <>
+                                            <Calculator className="text-orchid-600" size={24} />
+                                            {data.customTitle ? data.customTitle : (step === 1 ? 'Configurar Pago' : 'Confirmar Transacción')}
+                                        </>
+                                    )}
                                 </h2>
                                 {data.reference && <p className="text-slate-500 text-sm font-medium">{data.reference}</p>}
                             </div>
@@ -141,165 +153,193 @@ export function CashRegisterModal({ isOpen, onClose, data }: CashRegisterModalPr
                         {/* Content Body */}
                         <div className="p-8 overflow-y-auto">
 
-                            {/* STEP 1: Amount & Method */}
-                            {step === 1 && (
-                                <div className="flex flex-col gap-8 animate-in slide-in-from-left-4 fade-in duration-300">
-
-                                    {/* Section 1: Amount (Top) */}
-                                    <div className="text-center space-y-3">
-                                        <label className="text-xs font-bold text-slate-400 uppercase tracking-wider block">
-                                            {data.allowAmountEdit ? 'Monto a Abonar' : 'Total a Cobrar'}
-                                        </label>
-
-                                        {data.allowAmountEdit ? (
-                                            <div className="relative inline-block">
-                                                <span className="absolute left-0 top-1/2 -translate-y-1/2 text-3xl font-black text-slate-300">$</span>
-                                                <input
-                                                    type="text"
-                                                    autoFocus
-                                                    value={currentAmount ? new Intl.NumberFormat('es-CO').format(currentAmount) : ''}
-                                                    onChange={(e) => {
-                                                        const val = parseInt(e.target.value.replace(/[^0-9]/g, '')) || 0;
-                                                        if (val <= data.amountToPay) {
-                                                            setCurrentAmount(val);
-                                                        } else {
-                                                            toast.error(`El abono no puede superar el saldo pendiente (${formatCurrency(data.amountToPay)})`);
-                                                        }
-                                                    }}
-                                                    placeholder="0"
-                                                    className="w-full text-center bg-transparent border-b-2 border-slate-200 focus:border-orchid-500 text-5xl font-black text-orchid-600 outline-none transition-all placeholder:text-slate-200 px-8 py-2"
-                                                />
-                                            </div>
-                                        ) : (
-                                            <div className="text-6xl font-black text-slate-900 tracking-tighter">
-                                                {formatCurrency(currentAmount)}
-                                            </div>
-                                        )}
+                            {/* ZERO BALANCE CONFIRMATION VIEW */}
+                            {isZeroBalanceDelivery ? (
+                                <div className="flex flex-col items-center text-center space-y-6 animate-in zoom-in-95 duration-300">
+                                    <div className="w-24 h-24 bg-emerald-100 rounded-full flex items-center justify-center text-emerald-600 mb-2 shadow-emerald-200 shadow-xl">
+                                        <Check size={48} strokeWidth={3} />
                                     </div>
 
-                                    {/* Section 2: Method (Bottom) */}
-                                    <div className="space-y-3">
-                                        <label className="text-xs font-bold text-slate-400 uppercase tracking-wider block text-center">Método de Pago</label>
-                                        <div className="grid grid-cols-2 gap-4">
-                                            <button
-                                                onClick={() => setMethod('Efectivo')}
-                                                className={`p-6 rounded-2xl border-2 flex flex-col items-center justify-center gap-3 transition-all ${method === 'Efectivo'
-                                                    ? 'border-green-500 bg-green-50/50 text-green-700 shadow-lg shadow-green-100'
-                                                    : 'border-slate-100 bg-white text-slate-400 hover:border-slate-200 hover:bg-slate-50'}`}
-                                            >
-                                                <div className={`p-3 rounded-full ${method === 'Efectivo' ? 'bg-green-100' : 'bg-slate-100'}`}>
-                                                    <Banknote size={32} />
-                                                </div>
-                                                <span className="font-bold text-lg">Efectivo</span>
-                                            </button>
+                                    <div className="space-y-2">
+                                        <h3 className="text-2xl font-black text-slate-800">
+                                            ¿Entregar Pedido?
+                                        </h3>
+                                        <p className="text-slate-500 font-medium text-lg">
+                                            Esta factura ya está pagada.
+                                            <br />
+                                            <span className="text-emerald-600 font-bold">Saldo Pendiente: $0</span>
+                                        </p>
+                                    </div>
 
-                                            <button
-                                                onClick={() => setMethod('Nequi')} // Default digital
-                                                className={`p-6 rounded-2xl border-2 flex flex-col items-center justify-center gap-3 transition-all ${method !== 'Efectivo'
-                                                    ? 'border-orchid-500 bg-orchid-50/50 text-orchid-700 shadow-lg shadow-orchid-100'
-                                                    : 'border-slate-100 bg-white text-slate-400 hover:border-slate-200 hover:bg-slate-50'}`}
-                                            >
-                                                <div className={`p-3 rounded-full ${method !== 'Efectivo' ? 'bg-orchid-100' : 'bg-slate-100'}`}>
-                                                    <Smartphone size={32} />
-                                                </div>
-                                                <span className="font-bold text-lg">Digital</span>
-                                            </button>
-                                        </div>
-
-                                        {/* Digital Sub-options */}
-                                        <div className={`flex gap-2 justify-center mt-4 transition-all duration-300 ${method !== 'Efectivo' ? 'opacity-100 max-h-20' : 'opacity-0 max-h-0 overflow-hidden'}`}>
-                                            {(['Nequi', 'Daviplata', 'Bancolombia', 'Datafono'] as PaymentMethod[]).map(m => (
-                                                <button
-                                                    key={m}
-                                                    onClick={() => setMethod(m)}
-                                                    className={`px-4 py-2 rounded-xl text-sm font-bold transition-all border ${method === m ? 'bg-orchid-600 border-orchid-600 text-white shadow-md' : 'bg-white border-slate-200 text-slate-500 hover:bg-slate-50'}`}
-                                                >
-                                                    {m}
-                                                </button>
-                                            ))}
-                                        </div>
+                                    <div className="bg-slate-50 p-4 rounded-xl border border-slate-200 text-sm text-slate-600 w-full">
+                                        <p>Al confirmar, el pedido se marcará como <strong>Entregado</strong> y saldrá de la lista de pendientes.</p>
                                     </div>
                                 </div>
-                            )}
+                            ) : (
+                                /* STANDARD PAYMENT FLOW */
+                                <>
+                                    {/* STEP 1: Amount & Method */}
+                                    {step === 1 && (
+                                        <div className="flex flex-col gap-8 animate-in slide-in-from-left-4 fade-in duration-300">
 
-                            {/* STEP 2: Calculator / Confirmation */}
-                            {step === 2 && (
-                                <div className="flex flex-col gap-6 animate-in slide-in-from-right-4 fade-in duration-300">
+                                            {/* Section 1: Amount (Top) */}
+                                            <div className="text-center space-y-3">
+                                                <label className="text-xs font-bold text-slate-400 uppercase tracking-wider block">
+                                                    {data.customTitle === 'Confirmar Entrega' ? 'TOTAL A PAGAR AHORA' : (data.allowAmountEdit ? 'Monto a Abonar' : 'Total a Cobrar')}
+                                                </label>
 
-                                    {/* Summary Pill */}
-                                    <div className="flex justify-center">
-                                        <div className="bg-slate-100 rounded-full px-5 py-2 flex items-center gap-2 text-sm font-bold text-slate-600">
-                                            <span>Pagando</span>
-                                            <span className="text-slate-900">{formatCurrency(currentAmount)}</span>
-                                            <span className="text-slate-400">•</span>
-                                            <span className={`uppercase ${method === 'Efectivo' ? 'text-green-600' : 'text-orchid-600'}`}>{method}</span>
-                                        </div>
-                                    </div>
+                                                {data.allowAmountEdit ? (
+                                                    <div className="relative inline-block">
+                                                        <span className="absolute left-0 top-1/2 -translate-y-1/2 text-3xl font-black text-slate-300">$</span>
+                                                        <input
+                                                            type="text"
+                                                            autoFocus
+                                                            value={currentAmount ? new Intl.NumberFormat('es-CO').format(currentAmount) : ''}
+                                                            onChange={(e) => {
+                                                                const val = parseInt(e.target.value.replace(/[^0-9]/g, '')) || 0;
+                                                                if (val <= data.amountToPay) {
+                                                                    setCurrentAmount(val);
+                                                                } else {
+                                                                    toast.error(`El abono no puede superar el saldo pendiente (${formatCurrency(data.amountToPay)})`);
+                                                                }
+                                                            }}
+                                                            placeholder="0"
+                                                            className="w-full text-center bg-transparent border-b-2 border-slate-200 focus:border-orchid-500 text-5xl font-black text-orchid-600 outline-none transition-all placeholder:text-slate-200 px-8 py-2"
+                                                        />
+                                                    </div>
+                                                ) : (
+                                                    <div className="text-6xl font-black text-slate-900 tracking-tighter">
+                                                        {formatCurrency(currentAmount)}
+                                                    </div>
+                                                )}
+                                            </div>
 
-                                    {/* Content based on method */}
-                                    {method === 'Efectivo' ? (
-                                        <>
-                                            <div className="text-center space-y-2">
-                                                <label className="text-xs font-bold text-slate-400 uppercase tracking-wider block">¿Cuánto Recibes?</label>
-                                                <div className="relative">
-                                                    <div className="absolute left-8 top-1/2 -translate-y-1/2 text-slate-400 font-bold text-xl">$</div>
-                                                    <input
-                                                        type="text"
-                                                        autoFocus
-                                                        value={tenderedAmount ? new Intl.NumberFormat('es-CO').format(parseInt(tenderedAmount.replace(/\./g, ''))) : ''}
-                                                        onChange={(e) => setTenderedAmount(e.target.value.replace(/[^0-9]/g, ''))}
-                                                        onKeyDown={(e) => {
-                                                            if (e.key === 'Enter' && isSufficient) {
-                                                                handleFinalConfirm();
-                                                            }
-                                                        }}
-                                                        placeholder="0"
-                                                        className="w-full bg-slate-50 border-2 border-slate-200 focus:border-slate-900 rounded-2xl pl-12 pr-4 py-6 text-4xl font-bold text-slate-900 outline-none text-center transition-colors"
-                                                    />
+                                            {/* Section 2: Method (Bottom) */}
+                                            <div className="space-y-3">
+                                                <label className="text-xs font-bold text-slate-400 uppercase tracking-wider block text-center">Método de Pago</label>
+                                                <div className="grid grid-cols-2 gap-4">
+                                                    <button
+                                                        onClick={() => setMethod('Efectivo')}
+                                                        className={`p-6 rounded-2xl border-2 flex flex-col items-center justify-center gap-3 transition-all ${method === 'Efectivo'
+                                                            ? 'border-green-500 bg-green-50/50 text-green-700 shadow-lg shadow-green-100'
+                                                            : 'border-slate-100 bg-white text-slate-400 hover:border-slate-200 hover:bg-slate-50'}`}
+                                                    >
+                                                        <div className={`p-3 rounded-full ${method === 'Efectivo' ? 'bg-green-100' : 'bg-slate-100'}`}>
+                                                            <Banknote size={32} />
+                                                        </div>
+                                                        <span className="font-bold text-lg">Efectivo</span>
+                                                    </button>
+
+                                                    <button
+                                                        onClick={() => setMethod('Nequi')} // Default digital
+                                                        className={`p-6 rounded-2xl border-2 flex flex-col items-center justify-center gap-3 transition-all ${method !== 'Efectivo'
+                                                            ? 'border-orchid-500 bg-orchid-50/50 text-orchid-700 shadow-lg shadow-orchid-100'
+                                                            : 'border-slate-100 bg-white text-slate-400 hover:border-slate-200 hover:bg-slate-50'}`}
+                                                    >
+                                                        <div className={`p-3 rounded-full ${method !== 'Efectivo' ? 'bg-orchid-100' : 'bg-slate-100'}`}>
+                                                            <Smartphone size={32} />
+                                                        </div>
+                                                        <span className="font-bold text-lg">Digital</span>
+                                                    </button>
                                                 </div>
-                                                {/* Suggestions */}
-                                                <div className="flex gap-2 justify-center pt-2">
-                                                    {suggestions.map(s => (
+
+                                                {/* Digital Sub-options */}
+                                                <div className={`flex gap-2 justify-center mt-4 transition-all duration-300 ${method !== 'Efectivo' ? 'opacity-100 max-h-20' : 'opacity-0 max-h-0 overflow-hidden'}`}>
+                                                    {(['Nequi', 'Daviplata', 'Bancolombia', 'Datafono'] as PaymentMethod[]).map(m => (
                                                         <button
-                                                            key={s}
-                                                            onClick={() => setTenderedAmount(s.toString())}
-                                                            className="px-4 py-2 bg-white border border-slate-200 rounded-lg text-sm font-bold text-slate-600 shadow-sm hover:border-orchid-300 hover:text-orchid-600 transition-all"
+                                                            key={m}
+                                                            onClick={() => setMethod(m)}
+                                                            className={`px-4 py-2 rounded-xl text-sm font-bold transition-all border ${method === m ? 'bg-orchid-600 border-orchid-600 text-white shadow-md' : 'bg-white border-slate-200 text-slate-500 hover:bg-slate-50'}`}
                                                         >
-                                                            {formatCurrency(s)}
+                                                            {m}
                                                         </button>
                                                     ))}
                                                 </div>
                                             </div>
-
-                                            {/* Change Box */}
-                                            <div className={`p-6 rounded-2xl flex flex-col items-center justify-center gap-1 transition-all border-2 ${isSufficient ? 'bg-green-50 border-green-100' : 'bg-red-50 border-red-100'}`}>
-                                                <span className={`font-bold uppercase text-xs ${isSufficient ? 'text-green-600' : 'text-red-500'}`}>
-                                                    {isSufficient ? 'Cambio / Devuelta' : 'Faltante'}
-                                                </span>
-                                                <span className={`font-black text-4xl ${isSufficient ? 'text-green-700' : 'text-red-600'}`}>
-                                                    {isSufficient ? formatCurrency(change) : formatCurrency(Math.abs(change))}
-                                                </span>
-                                            </div>
-                                        </>
-                                    ) : (
-                                        <div className="flex flex-col items-center justify-center py-8 text-center space-y-4">
-                                            <div className="w-20 h-20 bg-orchid-100 rounded-full flex items-center justify-center text-orchid-600 mb-2 animate-bounce">
-                                                <Smartphone size={40} />
-                                            </div>
-                                            <h3 className="text-xl font-bold text-slate-900">Transacción Digital</h3>
-                                            <p className="text-slate-500 max-w-xs">
-                                                Confirma que has recibido el pago por <strong>{method}</strong>.
-                                            </p>
                                         </div>
                                     )}
-                                </div>
+
+                                    {/* STEP 2: Calculator / Confirmation */}
+                                    {step === 2 && (
+                                        <div className="flex flex-col gap-6 animate-in slide-in-from-right-4 fade-in duration-300">
+
+                                            {/* Summary Pill */}
+                                            <div className="flex justify-center">
+                                                <div className="bg-slate-100 rounded-full px-5 py-2 flex items-center gap-2 text-sm font-bold text-slate-600">
+                                                    <span>Pagando</span>
+                                                    <span className="text-slate-900">{formatCurrency(currentAmount)}</span>
+                                                    <span className="text-slate-400">•</span>
+                                                    <span className={`uppercase ${method === 'Efectivo' ? 'text-green-600' : 'text-orchid-600'}`}>{method}</span>
+                                                </div>
+                                            </div>
+
+                                            {/* Content based on method */}
+                                            {method === 'Efectivo' ? (
+                                                <>
+                                                    <div className="text-center space-y-2">
+                                                        <label className="text-xs font-bold text-slate-400 uppercase tracking-wider block">¿Cuánto Recibes?</label>
+                                                        <div className="relative">
+                                                            <div className="absolute left-8 top-1/2 -translate-y-1/2 text-slate-400 font-bold text-xl">$</div>
+                                                            <input
+                                                                type="text"
+                                                                autoFocus
+                                                                value={tenderedAmount ? new Intl.NumberFormat('es-CO').format(parseInt(tenderedAmount.replace(/\./g, ''))) : ''}
+                                                                onChange={(e) => setTenderedAmount(e.target.value.replace(/[^0-9]/g, ''))}
+                                                                onKeyDown={(e) => {
+                                                                    if (e.key === 'Enter' && isSufficient) {
+                                                                        handleFinalConfirm();
+                                                                    }
+                                                                }}
+                                                                placeholder="0"
+                                                                className="w-full bg-slate-50 border-2 border-slate-200 focus:border-slate-900 rounded-2xl pl-12 pr-4 py-6 text-4xl font-bold text-slate-900 outline-none text-center transition-colors"
+                                                            />
+                                                        </div>
+                                                        {/* Suggestions */}
+                                                        <div className="flex gap-2 justify-center pt-2">
+                                                            {suggestions.map(s => (
+                                                                <button
+                                                                    key={s}
+                                                                    onClick={() => setTenderedAmount(s.toString())}
+                                                                    className="px-4 py-2 bg-white border border-slate-200 rounded-lg text-sm font-bold text-slate-600 shadow-sm hover:border-orchid-300 hover:text-orchid-600 transition-all"
+                                                                >
+                                                                    {formatCurrency(s)}
+                                                                </button>
+                                                            ))}
+                                                        </div>
+                                                    </div>
+
+                                                    {/* Change Box */}
+                                                    <div className={`p-6 rounded-2xl flex flex-col items-center justify-center gap-1 transition-all border-2 ${isSufficient ? 'bg-green-50 border-green-100' : 'bg-red-50 border-red-100'}`}>
+                                                        <span className={`font-bold uppercase text-xs ${isSufficient ? 'text-green-600' : 'text-red-500'}`}>
+                                                            {isSufficient ? 'Cambio / Devuelta' : 'Faltante'}
+                                                        </span>
+                                                        <span className={`font-black text-4xl ${isSufficient ? 'text-green-700' : 'text-red-600'}`}>
+                                                            {isSufficient ? formatCurrency(change) : formatCurrency(Math.abs(change))}
+                                                        </span>
+                                                    </div>
+                                                </>
+                                            ) : (
+                                                <div className="flex flex-col items-center justify-center py-8 text-center space-y-4">
+                                                    <div className="w-20 h-20 bg-orchid-100 rounded-full flex items-center justify-center text-orchid-600 mb-2 animate-bounce">
+                                                        <Smartphone size={40} />
+                                                    </div>
+                                                    <h3 className="text-xl font-bold text-slate-900">Transacción Digital</h3>
+                                                    <p className="text-slate-500 max-w-xs">
+                                                        Confirma que has recibido el pago por <strong>{method}</strong>.
+                                                    </p>
+                                                </div>
+                                            )}
+                                        </div>
+                                    )}
+                                </>
                             )}
 
                         </div>
 
                         {/* Footer */}
                         <div className="p-6 bg-slate-50 border-t border-slate-100 flex gap-4 shrink-0">
-                            {step === 2 && mode !== 'change-calculator' && !data.disableClose && (
+                            {/* BACK BUTTON: Only show in Step 2 of normal flow */}
+                            {step === 2 && mode !== 'change-calculator' && !data.disableClose && !isZeroBalanceDelivery && (
                                 <button
                                     onClick={() => setStep(1)}
                                     className="px-6 py-4 rounded-xl font-bold text-slate-500 hover:bg-slate-200 transition-colors"
@@ -308,7 +348,8 @@ export function CashRegisterModal({ isOpen, onClose, data }: CashRegisterModalPr
                                 </button>
                             )}
 
-                            {step === 1 && mode !== 'payment-config' && !data.disableClose && (
+                            {/* CANCEL BUTTON: Show in Step 1 OR ZeroBalance */}
+                            {(step === 1 || isZeroBalanceDelivery) && mode !== 'payment-config' && !data.disableClose && (
                                 <button
                                     onClick={handleClose}
                                     className="flex-1 py-4 rounded-xl font-bold text-slate-500 hover:bg-slate-200 transition-colors"
@@ -317,23 +358,35 @@ export function CashRegisterModal({ isOpen, onClose, data }: CashRegisterModalPr
                                 </button>
                             )}
 
-                            {step === 1 ? (
-                                <button
-                                    onClick={handleNextStep}
-                                    className="flex-[2] bg-slate-900 hover:bg-slate-800 text-white text-lg font-bold py-4 rounded-xl shadow-xl shadow-slate-900/20 flex items-center justify-center gap-2 transition-all active:scale-[0.98]"
-                                >
-                                    {mode === 'payment-config' ? 'Confirmar Configuración' : 'Siguiente'}
-                                    <ArrowRight size={24} />
-                                </button>
-                            ) : (
+                            {isZeroBalanceDelivery ? (
                                 <button
                                     onClick={handleFinalConfirm}
-                                    disabled={(!isSufficient && method === 'Efectivo') || isProcessing}
+                                    disabled={isProcessing}
                                     className="flex-[2] bg-emerald-600 hover:bg-emerald-700 disabled:opacity-50 disabled:cursor-not-allowed text-white text-lg font-bold py-4 rounded-xl shadow-xl shadow-emerald-600/20 flex items-center justify-center gap-2 transition-all active:scale-[0.98]"
                                 >
-                                    {isProcessing ? 'Procesando...' : 'Confirmar Pago'}
+                                    {isProcessing ? 'Procesando...' : 'Sí, Entregar Pedido'}
                                     <Check size={24} />
                                 </button>
+                            ) : (
+                                /* NORMAL BUTTONS */
+                                step === 1 ? (
+                                    <button
+                                        onClick={handleNextStep}
+                                        className="flex-[2] bg-slate-900 hover:bg-slate-800 text-white text-lg font-bold py-4 rounded-xl shadow-xl shadow-slate-900/20 flex items-center justify-center gap-2 transition-all active:scale-[0.98]"
+                                    >
+                                        {mode === 'payment-config' ? 'Confirmar Configuración' : 'Continuar'}
+                                        <ArrowRight size={24} />
+                                    </button>
+                                ) : (
+                                    <button
+                                        onClick={handleFinalConfirm}
+                                        disabled={(!isSufficient && method === 'Efectivo') || isProcessing}
+                                        className="flex-[2] bg-emerald-600 hover:bg-emerald-700 disabled:opacity-50 disabled:cursor-not-allowed text-white text-lg font-bold py-4 rounded-xl shadow-xl shadow-emerald-600/20 flex items-center justify-center gap-2 transition-all active:scale-[0.98]"
+                                    >
+                                        {isProcessing ? 'Procesando...' : (data.customTitle === 'Confirmar Entrega' ? 'Pagar y Entregar' : 'Confirmar Pago')}
+                                        <Check size={24} />
+                                    </button>
+                                )
                             )}
                         </div>
                     </motion.div>

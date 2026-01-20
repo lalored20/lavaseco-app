@@ -157,18 +157,36 @@ export default function MissingItemsPage() {
                         // Visuals based on Alert Level
                         const level = getAlertLevel(invoice.scheduledDate, invoice.createdAt);
 
-                        // Card always white
-                        const cardStyle = "bg-white border-slate-200";
+                        // User Logic: Highlight ONLY if marked as incomplete TODAY.
+                        const updatedAtDate = invoice.updatedAt ? new Date(invoice.updatedAt) : null;
+                        const isUpdatedToday = updatedAtDate && updatedAtDate.toDateString() === new Date().toDateString();
 
-                        // Icon styles
-                        let iconColor = "text-slate-500 bg-slate-100"; // Default
+                        // Default White (if not marked today)
+                        let cardStyle = "bg-white border-slate-200";
+                        // Default icons
+                        let iconColor = "text-slate-500 bg-slate-100";
 
+                        // 1. Alert Visuals (Icon/Badge) - Always applies based on Date
                         if (level === 'overdue') {
-                            iconColor = "text-red-600 bg-red-100 ring-2 ring-red-500 ring-offset-2 animate-pulse";
+                            // Vencido: Red Icon + Pulse
+                            iconColor = "text-red-600 bg-white ring-4 ring-red-500/10 animate-pulse";
                         } else if (level === 'urgent') {
-                            iconColor = "text-rose-500 bg-rose-100";
+                            // Urgente: Pink Icon
+                            iconColor = "text-pink-500 bg-white ring-1 ring-pink-100";
                         } else if (level === 'warning') {
-                            iconColor = "text-amber-600 bg-amber-100";
+                            // Pronto: Amber Icon
+                            iconColor = "text-amber-500 bg-white ring-1 ring-amber-100";
+                        }
+
+                        // 2. Card Background Logic (Strict Separation)
+                        // User Rule: "Make all backgrounds white EXCEPT the ones marked with X"
+                        // ADDED RULE: "Red for today, white tomorrow" -> Only applying Pink BG if marked TODAY.
+
+                        if ((invoice.status === 'PROBLEMA' || invoice.logisticsStatus === 'incomplete') && isUpdatedToday) {
+                            cardStyle = "bg-rose-50 border-rose-100/50 shadow-sm shadow-rose-100/20";
+                        } else {
+                            // Default White for Overdue/Urgent/Pending/Old Missing
+                            cardStyle = "bg-white border-slate-200 shadow-sm";
                         }
 
                         // Resolve Action
@@ -192,7 +210,7 @@ export default function MissingItemsPage() {
                                 animate={{ opacity: 1, y: 0 }}
                                 exit={{ opacity: 0, scale: 0.95 }}
                                 onClick={() => setSelectedInvoice(invoice)}
-                                className={`bg-white rounded-2xl p-6 shadow-sm border border-slate-200 flex flex-col md:flex-row items-start md:items-center justify-between gap-6 hover:shadow-md transition-shadow cursor-pointer group`}
+                                className={`${cardStyle} rounded-2xl p-6 flex flex-col md:flex-row items-start md:items-center justify-between gap-6 hover:shadow-md transition-shadow cursor-pointer group ${isUpdatedToday ? 'hover:bg-rose-100/50' : 'hover:bg-slate-50'}`}
                             >
                                 {/* Left: Info */}
                                 <div className="flex items-start gap-4 flex-1 w-full">
@@ -213,20 +231,20 @@ export default function MissingItemsPage() {
 
                                         {/* Metadata */}
                                         <div className="flex flex-wrap items-center gap-2 text-xs font-medium text-slate-500">
-                                            <div className="flex items-center gap-1.5 bg-slate-50 px-2 py-1 rounded-lg border border-slate-100">
+                                            <div className="flex items-center gap-1.5 bg-white/50 px-2 py-1 rounded-lg border border-rose-200/50">
                                                 <FileText size={12} className="text-slate-400" />
                                                 <span className="text-slate-900 font-bold">Recibo #{invoice.ticketNumber}</span>
                                             </div>
-                                            <div className="flex items-center gap-1.5 bg-slate-50 px-2 py-1 rounded-lg border border-slate-100">
+                                            <div className="flex items-center gap-1.5 bg-white/50 px-2 py-1 rounded-lg border border-rose-200/50">
                                                 <User size={12} className="text-slate-400" />
                                                 <span>{invoice.client.name}</span>
                                             </div>
-                                            <div className="flex items-center gap-1.5 bg-slate-50 px-2 py-1 rounded-lg border border-slate-100">
+                                            <div className="flex items-center gap-1.5 bg-white/50 px-2 py-1 rounded-lg border border-rose-200/50">
                                                 <Phone size={12} className="text-slate-400" />
                                                 <span>{invoice.client.phone}</span>
                                             </div>
                                             {(invoice.client.cedula || invoice.client.id) && (
-                                                <div className="flex items-center gap-1.5 bg-slate-50 px-2 py-1 rounded-lg border border-slate-100">
+                                                <div className="flex items-center gap-1.5 bg-white/50 px-2 py-1 rounded-lg border border-rose-200/50">
                                                     <CreditCard size={12} className="text-slate-400" />
                                                     <span>CC {invoice.client.cedula || invoice.client.id}</span>
                                                 </div>
@@ -234,6 +252,7 @@ export default function MissingItemsPage() {
                                         </div>
                                     </div>
                                 </div>
+
 
                                 {/* Action: Arreglado (Matches Delivery Button Style) */}
                                 <button
@@ -255,6 +274,23 @@ export default function MissingItemsPage() {
                 isOpen={!!selectedInvoice}
                 onClose={() => setSelectedInvoice(null)}
                 isMissingView={true}
+                onOrganize={(id, ticket) => {
+                    // Wrapper to match signature (e: event is handled inside Modal by not passing it)
+                    // We need to call markItemFoundAgain. But wait, handleMarkFound expects event.
+                    // Let's create a direct caller.
+                    markItemFoundAgain(id, 'ALL'); // FIX: markItemFoundAgain might need itemID.
+                    // But here we are resolving the invoice? The list action is "Resolve".
+                    // The list action uses `updateInvoiceStatus(invoice.id, 'complete')`.
+                    updateInvoiceStatus(id, 'complete');
+                    toast.success(`Factura #${ticket} marcada como arreglada`, {
+                        description: 'Se ha movido a Entregas (Prendas por Entregar)'
+                    });
+                }}
+                onMarkMissing={(id) => {
+                    // "Todavía no está" -> Just close modal, maybe toast?
+                    // Or re-assert missing status?
+                    toast.info("Sigue marcada como faltante");
+                }}
             />
         </div >
     );

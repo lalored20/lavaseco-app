@@ -19,6 +19,8 @@ export interface TransactionData {
     totalInvoiced?: number;    // For display "Total Factura: $50.000"
     clientName?: string;
     reference?: string;        // "Factura #1040"
+    customTitle?: string;      // NEW: Allow overriding the modal title
+    disableBrandCheck?: boolean; // NEW: If true, skips potential brand checks in confirmation logic if added later.
     mode?: 'full' | 'payment-config' | 'change-calculator';
     onConfirm: (result: TransactionResult) => Promise<void> | void;
 }

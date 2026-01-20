@@ -223,36 +223,30 @@ export default function LogisticsOrganizePage() {
                                     // Mapping server status to UI logic
                                     const isProblem = invoice.status === 'PROBLEMA';
 
-                                    // Check if status change allows "Fresh" (Incomplete) display
-                                    // Rule: Persist "Incomplete" until 10:00 AM of the NEXT day after marking.
-                                    let isFreshProblem = false;
-                                    if (isProblem && invoice.updatedAt) {
-                                        const updatedAt = new Date(invoice.updatedAt);
-                                        const now = new Date();
+                                    // User Logic: Highlight ONLY if marked as incomplete TODAY. Reset to white tomorrow.
+                                    const updatedAtDate = invoice.updatedAt ? new Date(invoice.updatedAt) : null;
+                                    const isUpdatedToday = updatedAtDate && updatedAtDate.toDateString() === new Date().toDateString();
 
-                                        // Calculate Expiration: Day of Update + 1 Day, at 10:00 AM
-                                        const expiration = new Date(updatedAt);
-                                        expiration.setDate(expiration.getDate() + 1); // Next Day
-                                        expiration.setHours(10, 0, 0, 0); // 10:00 AM
+                                    const shouldHighlight = isProblem && isUpdatedToday;
 
-                                        // If we are currently BEFORE the expiration, it persists.
-                                        isFreshProblem = now < expiration;
-                                    }
+                                    // Status Badge Logic:
+                                    // If marked "Incomplete" TODAY -> Show INCOMPLETO
+                                    // If marked "Incomplete" YESTERDAY -> Show Time Status (e.g. VENCIDO)
+                                    // This aligns the Badge with the Highlight.
 
                                     let statusContent = null;
 
-                                    // Only show INCOMPLETO if it is a FRESH problem (Today).
-                                    // Otherwise (Next Day), fall back to Alert Level (original label).
-                                    if (isProblem && isFreshProblem) {
-                                        // "INCOMPLETO" but with Urgency Color
+                                    if (isProblem && isUpdatedToday) {
+                                        // "INCOMPLETO" - Only for today
                                         let badgeClass = "bg-amber-500 text-white shadow-amber-200"; // Default
                                         let badgeText = "INCOMPLETO";
 
                                         if (alertLevel === 'overdue') badgeClass = "bg-red-600 text-white shadow-red-500/30 animate-pulse";
                                         else if (alertLevel === 'urgent') badgeClass = "bg-rose-500 text-white shadow-rose-200";
                                         else if (alertLevel === 'warning') badgeClass = "bg-amber-500 text-white shadow-amber-200";
-                                        else if (alertLevel === 'normal') {
-                                            // Requirements: Green color, Text "TODAVÍA NO ESTÁ"
+
+                                        // Specific requirement: If normal, show "TODAVÍA NO ESTÁ"
+                                        if (alertLevel === 'normal') {
                                             badgeClass = "bg-emerald-500 text-white shadow-emerald-200";
                                             badgeText = "TODAVÍA NO ESTÁ";
                                         }
@@ -288,10 +282,12 @@ export default function LogisticsOrganizePage() {
                                         );
                                     }
 
+                                    const rowClass = shouldHighlight ? "bg-rose-50/50 hover:bg-rose-100/50 border-l-4 border-l-rose-500" : "border-b border-slate-50 hover:bg-slate-50/80";
+
                                     return (
                                         <tr
                                             key={invoice.id}
-                                            className="border-b border-slate-50 hover:bg-slate-50/80 transition-colors group cursor-pointer"
+                                            className={`${rowClass} transition-colors group cursor-pointer`}
                                             onClick={() => setSelectedInvoice(invoice)}
                                         >
                                             <td className="px-6 py-6 font-medium text-slate-900 group-hover:text-orchid-600 transition-colors text-base">
@@ -354,6 +350,8 @@ export default function LogisticsOrganizePage() {
                 onClose={() => setSelectedInvoice(null)}
                 isLogisticsView={true}
                 isMissingView={true} // Reusing this to hide Print button as requested
+                onOrganize={(id, ticket) => handleMarkOrganized(id, ticket)}
+                onMarkMissing={(id, ticket) => handleMarkMissing(id, ticket)}
             />
 
         </div>

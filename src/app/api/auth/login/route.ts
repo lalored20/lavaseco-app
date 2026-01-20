@@ -18,7 +18,15 @@ export async function POST(req: Request) {
         }
 
         console.log("🔍 Looking for user:", email);
-        const user = await prisma.user.findUnique({ where: { email } });
+        const user = await prisma.user.findUnique({
+            where: { email },
+            include: {
+                shifts: {
+                    where: { status: 'OPEN' },
+                    take: 1
+                }
+            }
+        });
 
         // --- NEW USER FLOW ---
         if (!user) {
@@ -26,16 +34,22 @@ export async function POST(req: Request) {
             const code = generateCode();
             const hashedPassword = await bcrypt.hash(password, 10);
 
+            // First user is ADMIN, others are STAFF (optional logic, keeping simple for now defaulting to STAFF)
+            // But if it's the specific admin email, we could upgrade access.
+            const userCount = await prisma.user.count();
+            const role = userCount === 0 ? 'ADMIN' : 'STAFF';
+
             const newUser = await prisma.user.create({
                 data: {
                     email,
                     passwordHash: hashedPassword,
                     verificationCode: code,
                     isVerified: false,
-                    verifAttempts: 0
+                    verifAttempts: 0,
+                    role: role
                 }
             });
-            console.log("✅ User created:", newUser.id);
+            console.log("✅ User created:", newUser.id, "Role:", role);
 
             // Email attempt (Background - Fire & Forget)
             sendVerificationEmail(email, code).catch(err =>
@@ -49,7 +63,7 @@ export async function POST(req: Request) {
         }
 
         // --- EXISTING USER FLOW ---
-        console.log("👤 Existing User found.");
+        console.log("👤 Existing User found. Role:", user.role);
         const isValid = await bcrypt.compare(password, user.passwordHash);
         if (!isValid) {
             console.warn("🔐 Invalid Password");
@@ -77,11 +91,20 @@ export async function POST(req: Request) {
             });
         }
 
+        // --- CHECK ACTIVE SHIFT FOR STAFF ---
+        const openShift = user.shifts[0] || null;
+
         console.log("🔓 Login Successful");
         return NextResponse.json({
             status: 'SUCCESS',
             message: "Bienvenido",
-            user: { id: user.id, email: user.email }
+            user: {
+                id: user.id,
+                email: user.email,
+                name: user.name,
+                role: user.role,
+                activeShiftId: openShift?.id || null
+            }
         });
 
     } catch (error: any) {

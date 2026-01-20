@@ -109,7 +109,27 @@ export async function upsertInvoices(invoices: any[]) {
         orderStatus: inv.status // Map Server Status to Local Order Status
     }));
 
-    await db.invoices.bulkPut(offlineInvoices);
+    // PROTECT LOCAL CHANGES:
+    // 1. Find which of these IDs currently exist locally with 'PENDING_UPDATE' or 'PENDING_SYNC'
+    const incomingIds = offlineInvoices.map(inv => inv.id);
+    const protectedRecords = await db.invoices
+        .where('id').anyOf(incomingIds)
+        .and(inv => inv.status === 'PENDING_UPDATE' || inv.status === 'PENDING_SYNC')
+        .toArray();
+
+    const protectedIds = new Set(protectedRecords.map(inv => inv.id));
+
+    // 2. Filter out incoming server data for these protected IDs
+    const safeToUpsert = offlineInvoices.filter(inv => !protectedIds.has(inv.id));
+
+    if (safeToUpsert.length > 0) {
+        await db.invoices.bulkPut(safeToUpsert);
+    }
+
+    // Optional: Log conflict avoidance
+    if (protectedIds.size > 0) {
+        console.log(`[OfflineStorage] Skipped overwriting ${protectedIds.size} records with pending local changes.`);
+    }
 }
 
 // Helper to detect date
@@ -219,8 +239,55 @@ export async function searchLocalInvoices(query: string, limit: number = 50, fil
                 const rawStoredId = (invoice.client?.id || '').toString().toLowerCase(); // FIX: Match UI Logic
                 const rawFilter = filters.cedula.toLowerCase();
 
-                if (!cleanStored.includes(cleanFilter) && !cleanStoredId.includes(cleanFilter) &&
-                    !rawStored.includes(rawFilter) && !rawStoredId.includes(rawFilter)) matches = false;
+                if (!cleanStored.includes(cleanFilter) && !cleanFilter.includes(cleanStored)) matches = false;
+            }
+
+            // --- STATUS FILTER (Logistics) ---
+            if (filters.status) {
+                const s = filters.status;
+                const invStatus = invoice.status || 'PENDING';
+                const logStatus = (invoice as any).logisticsStatus || '';
+                const ordStatus = invoice.orderStatus || '';
+
+                if (s === 'por_organizar') {
+                    // Logic: Not Delivered, Not Ready, Not Problem
+                    const isDelivered = invStatus === 'delivered' || ordStatus === 'delivered';
+                    const isReady = invStatus === 'EN_PROCESO' || ordStatus === 'EN_PROCESO' || logStatus === 'complete';
+                    const isProblem = invStatus === 'PROBLEMA' || ordStatus === 'PROBLEMA';
+
+                    if (isDelivered || isReady || isProblem) matches = false;
+                }
+                else if (s === 'por_entregar') {
+                    const isReady = (invStatus === 'EN_PROCESO' || ordStatus === 'EN_PROCESO' || logStatus === 'complete');
+                    const isDelivered = (invStatus === 'delivered' || ordStatus === 'delivered');
+                    if (!isReady || isDelivered) matches = false;
+                }
+                else if (s === 'entregado') {
+                    if (invStatus !== 'delivered' && ordStatus !== 'delivered') matches = false;
+                }
+                else if (s === 'faltante') {
+                    if (invStatus !== 'PROBLEMA' && ordStatus !== 'PROBLEMA') matches = false;
+                }
+            }
+
+            // --- PAYMENT STATUS FILTER ---
+            if (filters.paymentStatus) {
+                const p = filters.paymentStatus;
+                const total = invoice.totalValue || 0;
+                const paid = invoice.payment?.amount || 0;
+                // Payment status string might also be stored
+                const pStatus = invoice.payment?.status || '';
+
+                if (p === 'pagado') {
+                    const isFullyPaid = (paid >= total && total > 0) || pStatus === 'PAGADO';
+                    if (!isFullyPaid) matches = false;
+                } else if (p === 'abono') {
+                    const isPartial = (paid > 0 && paid < total) || pStatus === 'ABONO';
+                    if (!isPartial) matches = false;
+                } else if (p === 'pendiente') {
+                    const isPending = (paid <= 0) && pStatus !== 'PAGADO' && pStatus !== 'ABONO';
+                    if (!isPending) matches = false;
+                }
             }
 
             // PHONE: Clean both search & store (Strict normalized check OR raw check)

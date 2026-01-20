@@ -118,7 +118,9 @@ export function InvoiceListClient({ invoices: initialInvoices, totalCount: initi
         cedula: '',
         phone: '',
         description: '',
-        ticketNumber: ''
+        ticketNumber: '',
+        status: '',
+        paymentStatus: ''
     });
     const debouncedFilters = useDebounceValue(filters, 500);
 
@@ -155,6 +157,8 @@ export function InvoiceListClient({ invoices: initialInvoices, totalCount: initi
         if (debouncedFilters.phone) cleanFilters.phone = debouncedFilters.phone;
         if (debouncedFilters.description) cleanFilters.description = debouncedFilters.description;
         if (debouncedFilters.ticketNumber) cleanFilters.ticketNumber = debouncedFilters.ticketNumber;
+        if (debouncedFilters.status) cleanFilters.status = debouncedFilters.status;
+        if (debouncedFilters.paymentStatus) cleanFilters.paymentStatus = debouncedFilters.paymentStatus;
 
         try {
             // 1. FAST PATH: Local Search (Always run this)
@@ -205,7 +209,10 @@ export function InvoiceListClient({ invoices: initialInvoices, totalCount: initi
             cedula: '',
             phone: '',
             description: '',
-            ticketNumber: ''
+            description: '',
+            ticketNumber: '',
+            status: '',
+            paymentStatus: ''
         });
         setSearchTerm('');
     };
@@ -267,6 +274,50 @@ export function InvoiceListClient({ invoices: initialInvoices, totalCount: initi
                         <Plus size={18} />
                         Nueva Factura
                     </Link>
+
+                    {/* RECOVERY BUTTON */}
+                    <button
+                        onClick={async () => {
+                            if (confirm("¿Estás seguro de que quieres forzar la subida de tus facturas locales al servidor? Esto reparará la Caja si está en $0.")) {
+                                setIsSyncing(true);
+                                try {
+                                    // 1. Get ALL local invoices
+                                    const allLocal = await searchLocalInvoices('', 10000); // Get All
+                                    if (allLocal.length === 0) {
+                                        toast.info("No hay facturas locales para subir.");
+                                        setIsSyncing(false);
+                                        return;
+                                    }
+
+                                    toast.loading(`Subiendo ${allLocal.length} facturas...`);
+
+                                    // 2. Import Action dynamically to avoid server-client issues if not cached
+                                    const { upsertInvoicesBulk } = await import('@/lib/actions/billing');
+
+                                    // 3. Send to Server
+                                    const res = await upsertInvoicesBulk(allLocal);
+
+                                    if (res.success) {
+                                        toast.success(`Sincronización Completada: ${res.count} subidas.`);
+                                        // Refresh view
+                                        window.location.reload();
+                                    } else {
+                                        toast.error("Error al subir: " + res.error);
+                                    }
+                                } catch (e) {
+                                    console.error(e);
+                                    toast.error("Error crítico al sincronizar.");
+                                } finally {
+                                    setIsSyncing(false);
+                                }
+                            }
+                        }}
+                        className="bg-amber-100 text-amber-700 px-4 py-2.5 rounded-xl text-sm font-bold hover:bg-amber-200 transition flex items-center gap-2"
+                        title="Reparar Caja (Subir Datos Locales)"
+                    >
+                        <RefreshCw size={18} className={isSyncing ? "animate-spin" : ""} />
+                        Reparar
+                    </button>
                 </div>
             </div>
 
@@ -346,7 +397,36 @@ export function InvoiceListClient({ invoices: initialInvoices, totalCount: initi
                         />
                     </div>
 
-                    <div className="flex items-end justify-end">
+                    <div className="space-y-1.5">
+                        <label className="text-xs font-bold text-slate-500 uppercase tracking-wide">Estado Logística</label>
+                        <select
+                            className="w-full bg-slate-50 border border-slate-200 rounded-lg px-3 py-2 text-sm focus:ring-2 focus:ring-orchid-500/20 outline-none transition cursor-pointer"
+                            value={filters.status}
+                            onChange={(e) => handleFilterChange('status', e.target.value)}
+                        >
+                            <option value="">Todos</option>
+                            <option value="por_organizar">Por Organizar</option>
+                            <option value="por_entregar">Por Entregar</option>
+                            <option value="entregado">Entregados</option>
+                            <option value="faltante">Faltantes / Problema</option>
+                        </select>
+                    </div>
+
+                    <div className="space-y-1.5">
+                        <label className="text-xs font-bold text-slate-500 uppercase tracking-wide">Estado Pago</label>
+                        <select
+                            className="w-full bg-slate-50 border border-slate-200 rounded-lg px-3 py-2 text-sm focus:ring-2 focus:ring-orchid-500/20 outline-none transition cursor-pointer"
+                            value={filters.paymentStatus}
+                            onChange={(e) => handleFilterChange('paymentStatus', e.target.value)}
+                        >
+                            <option value="">Todos</option>
+                            <option value="pendiente">Pendiente</option>
+                            <option value="abono">Abono (Parcial)</option>
+                            <option value="pagado">Pagado</option>
+                        </select>
+                    </div>
+
+                    <div className="flex items-end justify-end gap-2">
                         <button
                             onClick={clearFilters}
                             className="text-slate-400 hover:text-red-500 text-sm font-bold flex items-center gap-1.5 px-3 py-2 transition disabled:opacity-50"
@@ -354,6 +434,13 @@ export function InvoiceListClient({ invoices: initialInvoices, totalCount: initi
                         >
                             <X size={16} />
                             Limpiar
+                        </button>
+                        <button
+                            onClick={() => setShowFilters(false)}
+                            className="bg-orchid-600 text-white hover:bg-orchid-700 text-sm font-bold flex items-center gap-1.5 px-4 py-2 rounded-lg transition shadow-sm shadow-orchid-200"
+                        >
+                            <Filter size={16} />
+                            Aplicar Filtros
                         </button>
                     </div>
                 </div>

@@ -58,6 +58,9 @@ export default function LoginPage() {
                 setStep('VERIFY');
                 toast.success('Código enviado', { description: data.message });
             } else if (data.status === 'SUCCESS') {
+                // Save session for AuthContext
+                localStorage.setItem('lavaseco_user', JSON.stringify(data.user));
+
                 toast.success('Acceso Correcto', { description: 'Redirigiendo...' });
                 window.location.href = '/dashboard/billing-a';
             }

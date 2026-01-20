@@ -79,6 +79,7 @@ export function useInvoices() {
                         status: busStatus,
                         logisticsStatus: logStatus,
                         items: inv.items || [],
+                        // CRITICAL: Prioritize local updatedAt to preserve "Today" highlighting
                         updatedAt: inv.updatedAt || (typeof inv.createdAt === 'number' ? new Date(inv.createdAt).toISOString() : inv.createdAt)
                     };
                 });
@@ -111,7 +112,8 @@ export function useInvoices() {
                 createdAt: typeof inv.createdAt === 'number' ? new Date(inv.createdAt).toISOString() : inv.createdAt,
                 scheduledDate: inv.dates?.delivery ? (typeof inv.dates.delivery === 'number' ? new Date(inv.dates.delivery).toISOString() : inv.dates.delivery) : null,
                 status: busStatus,
-                logisticsStatus: logStatus
+                logisticsStatus: logStatus,
+                updatedAt: inv.updatedAt || (typeof inv.createdAt === 'number' ? new Date(inv.createdAt).toISOString() : inv.createdAt)
             };
         });
         setInvoices(mappedLocal);

@@ -471,21 +471,62 @@ export async function deliverOrder(orderId: string) {
     }
 }
 
-export async function getDailyCashSummary(startDateStr?: string, endDateStr?: string) {
+export async function getDailyCashSummary(
+    startDateStr?: string,
+    endDateStr?: string,
+    optionsOrIgnoreShifts: boolean | { ignoreShifts?: boolean, useExactTimes?: boolean } = false
+) {
     try {
+        const options = typeof optionsOrIgnoreShifts === 'object'
+            ? optionsOrIgnoreShifts
+            : { ignoreShifts: optionsOrIgnoreShifts, useExactTimes: false };
+
+        const { ignoreShifts, useExactTimes } = options;
+
         const start = startDateStr ? new Date(startDateStr) : new Date();
-        start.setHours(0, 0, 0, 0);
+        if (!useExactTimes) start.setHours(0, 0, 0, 0);
 
-        // If end date is provided, use it. Otherwise defaults to start date (single day view)
         const end = endDateStr ? new Date(endDateStr) : new Date(start);
-        end.setHours(23, 59, 59, 999);
+        if (!useExactTimes) end.setHours(23, 59, 59, 999);
 
-        // Fetch all logs for the period
+        // --- SHIFT LOGIC START ---
+        // Need day boundaries for fetching ALL shifts of the day metadata
+        const dayStart = new Date(start);
+        if (useExactTimes) dayStart.setHours(0, 0, 0, 0);
+        const dayEnd = new Date(dayStart);
+        dayEnd.setHours(23, 59, 59, 999);
+
+        // @ts-ignore
+        const shifts = await prisma.cashShift.findMany({
+            where: {
+                createdAt: { gte: dayStart, lte: dayEnd }
+            },
+            orderBy: { turnNumber: 'asc' }
+        });
+
+        const lastShift = shifts.length > 0 ? shifts[shifts.length - 1] : null;
+        const currentTurnNumber = (lastShift?.turnNumber || 0) + 1;
+
+        // If filtering a single day, respect shifts. If range, show all.
+        const isSingleDay = start.toDateString() === end.toDateString();
+
+        // LOGIC CHANGE: If ignoreShifts is true, we fetch from start of day (00:00).
+        // Otherwise, we fetch from the end of the last shift (current active shift).
+        let fetchStart = start;
+        let fetchEnd = end;
+
+        if (!useExactTimes) {
+            if (isSingleDay && !ignoreShifts && lastShift) {
+                fetchStart = lastShift.endTime;
+            }
+        }
+        // --- SHIFT LOGIC END ---
+
         const logs = await prisma.paymentLog.findMany({
             where: {
                 createdAt: {
-                    gte: start,
-                    lte: end
+                    gte: fetchStart,
+                    lte: fetchEnd
                 }
             },
             include: {
@@ -514,8 +555,8 @@ export async function getDailyCashSummary(startDateStr?: string, endDateStr?: st
                 expenses = await prisma.expense.findMany({
                     where: {
                         date: {
-                            gte: start,
-                            lte: end
+                            gte: fetchStart,
+                            lte: fetchEnd
                         }
                     },
                     orderBy: { date: 'desc' }
@@ -593,8 +634,8 @@ export async function getDailyCashSummary(startDateStr?: string, endDateStr?: st
         return {
             success: true,
             data: {
-                startDate: start.toISOString(),
-                endDate: end.toISOString(),
+                startDate: fetchStart.toISOString(),
+                endDate: fetchEnd.toISOString(),
                 totalCash,
                 totalDigital,
                 totalCollected: totalCash + totalDigital,
@@ -602,7 +643,15 @@ export async function getDailyCashSummary(startDateStr?: string, endDateStr?: st
                 netCash: totalCash - totalExpenses,
                 digitalBreakdown: methodsSummary, // Match frontend expectation
                 transactions: enrichedLogs,
-                expenses // Include raw expenses
+                expenses, // Include raw expenses
+                turnNumber: currentTurnNumber,
+                previousShifts: shifts.map((s: any) => ({
+                    ...s,
+                    date: s.date.toISOString(),
+                    startTime: s.startTime.toISOString(),
+                    endTime: s.endTime.toISOString(),
+                    createdAt: s.createdAt.toISOString()
+                }))
             }
         };
 
@@ -642,5 +691,174 @@ export async function deleteExpense(id: string) {
     } catch (error) {
         console.error("Error deleting expense:", error);
         return { success: false, error: "No se pudo eliminar el gasto." };
+    }
+}
+
+export async function closeCashShift(data: {
+    turnNumber: number;
+    cashCount: number;
+    digitalCount: number;
+    expenseCount: number;
+    totalCalculated: number;
+}) {
+    try {
+        const now = new Date();
+        const startOfDay = new Date(now);
+        startOfDay.setHours(0, 0, 0, 0);
+
+        // @ts-ignore
+        const lastShift = await prisma.cashShift.findFirst({
+            orderBy: { createdAt: 'desc' }, // Get the absolute last shift, regardless of date
+        });
+
+        // Determine next Turn Number
+        let nextTurnNumber = 1;
+
+        if (lastShift) {
+            const lastShiftDate = new Date(lastShift.createdAt); // Shift creation date
+            // const timeDiff = now.getTime() - lastShiftDate.getTime();
+
+            // Check if it's the same day (Local/Server time)
+            // Note: This relies on the server's timezone. 
+            // Ideally should match user timezone, but for now server time is the source of truth.
+            const isSameDay =
+                lastShiftDate.getDate() === now.getDate() &&
+                lastShiftDate.getMonth() === now.getMonth() &&
+                lastShiftDate.getFullYear() === now.getFullYear();
+
+            if (isSameDay) {
+                nextTurnNumber = (lastShift.turnNumber || 0) + 1;
+            } else {
+                nextTurnNumber = 1; // RESET FOR NEW DAY
+            }
+        }
+
+        const startTime = lastShift && nextTurnNumber > 1 ? lastShift.endTime : startOfDay;
+
+
+        // @ts-ignore
+        const newShift = await prisma.cashShift.create({
+            data: {
+                date: now,
+                date: now,
+                startTime: startTime,
+                endTime: now,
+                turnNumber: nextTurnNumber, // Use Server Calculated Number
+                cashCount: data.cashCount,
+                digitalCount: data.digitalCount,
+                expenseCount: data.expenseCount,
+                totalCalculated: data.totalCalculated
+            }
+        });
+
+        revalidatePath('/dashboard/cash');
+        return { success: true, data: newShift };
+    } catch (error) {
+        console.error("Error closing shift:", error);
+        return { success: false, error: "Error al cerrar el turno." };
+    }
+}
+
+// --- RECOVERY / SYNC ACTIONS ---
+export async function upsertInvoicesBulk(invoices: any[]) {
+    console.log(`[Sync] Received ${invoices.length} invoices to sync.`);
+    try {
+        let successCount = 0;
+        let errorCount = 0;
+
+        for (const invoice of invoices) {
+            try {
+                // 1. Upsert Client
+                const clientId = invoice.client.id || invoice.client.cedula || 'UNKNOWN_' + Date.now();
+
+                // Ensure Client Exists
+                const clientData = {
+                    id: clientId,
+                    name: invoice.client.name || 'Cliente Sin Nombre',
+                    cedula: invoice.client.cedula,
+                    phone: invoice.client.phone,
+                };
+
+                await prisma.client.upsert({
+                    where: { id: clientId },
+                    update: clientData,
+                    create: clientData
+                });
+
+                // 2. Upsert Order
+                const existingOrder = await prisma.order.findUnique({ where: { id: invoice.id } });
+
+                const orderData = {
+                    id: invoice.id,
+                    ticketNumber: invoice.ticketNumber || undefined, // Allow default generation if missing, but usually ideally preserved
+                    clientId: clientId,
+                    totalValue: invoice.totalValue,
+                    paidAmount: invoice.payment?.amount || 0,
+                    paymentStatus: invoice.payment?.status || 'PENDIENTE',
+                    status: invoice.orderStatus || invoice.status || 'PENDIENTE', // Careful with 'SYNCED' status from local
+                    createdAt: new Date(invoice.createdAt), // Restore original date
+                    // If local has dates.delivery use it, otherwise undefined
+                    scheduledDate: invoice.dates?.delivery ? new Date(invoice.dates.delivery) : undefined
+                };
+
+                if (existingOrder) {
+                    await prisma.order.update({
+                        where: { id: invoice.id },
+                        data: {
+                            ...orderData,
+                            ticketNumber: undefined, // Don't change ticket number on update usually
+                            createdAt: undefined // Don't change creation date
+                        }
+                    });
+                } else {
+                    await prisma.order.create({
+                        data: {
+                            ...orderData,
+                            items: {
+                                create: invoice.items.map((item: any) => ({
+                                    type: item.type || item.description || 'Prenda',
+                                    quantity: item.quantity || 1,
+                                    price: item.price || 0,
+                                    color: item.color,
+                                    features: item.features,
+                                    notes: item.notes
+                                }))
+                            }
+                        }
+                    });
+                }
+
+                // 3. Sync Payment Logs (If paid and no logs exist)
+                if (orderData.paidAmount > 0) {
+                    const logs = await prisma.paymentLog.count({ where: { orderId: invoice.id } });
+                    if (logs === 0) {
+                        // Create a recovery log
+                        await prisma.paymentLog.create({
+                            data: {
+                                orderId: invoice.id,
+                                amount: orderData.paidAmount,
+                                type: 'ABONO', // Assume Abono for recovery
+                                note: 'Recuperado de Local (Sincronización)',
+                                createdAt: new Date(invoice.createdAt) // Backdate it
+                            }
+                        });
+                    }
+                }
+
+                successCount++;
+
+            } catch (innerError) {
+                console.error(`[Sync] Error syncing invoice ${invoice.id}:`, innerError);
+                errorCount++;
+            }
+        }
+
+        revalidatePath('/dashboard/billing-a/list');
+        revalidatePath('/dashboard/cash');
+        return { success: true, count: successCount, errors: errorCount };
+
+    } catch (error) {
+        console.error("Error bulk syncing:", error);
+        return { success: false, error: "Error de sincronización masiva." };
     }
 }

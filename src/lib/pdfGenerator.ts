@@ -303,8 +303,151 @@ export const generateInvoicePDF = async (data: InvoiceData, format: 'letter' | '
             doc.text("Representación Gráfica", 40, y, { align: "center" });
         }
 
-        // Auto-print script (Optional, works in some viewers)
-        // doc.autoPrint();
+        // --- PAGE 2: INTERNAL TICKET (Copia para Lavaseco) ---
+        doc.addPage([80, 2000], 'portrait'); // New Page (Cuts automatically on most thermal printers)
+        y = 10; // Reset Y
+
+        // ORDEN # Header (No Company Info)
+        doc.setFontSize(18);
+        doc.setFont("helvetica", "bold");
+        doc.setTextColor(0, 0, 0);
+        doc.text(`ORDEN #${data.ticketNumber}`, 40, y, { align: "center" });
+        y += 7;
+
+        // Dates
+        doc.setFontSize(7);
+        doc.setFont("helvetica", "normal");
+        doc.text(`Fecha de entrada: ${formatDateForDisplay(data.date)}`, 40, y, { align: "center" });
+        y += 3.5;
+
+        // Re-calculate delivery date (reusing logic from above)
+        const entryDate2 = new Date(data.date);
+        const deliveryDate2 = new Date(entryDate2);
+        deliveryDate2.setDate(deliveryDate2.getDate() + 2);
+        const deliveryDateStr2 = formatDateForDisplay(deliveryDate2);
+
+        doc.text(`Fecha de entrega: ${deliveryDateStr2} en la tarde`, 40, y, { align: "center" });
+        y += 8;
+
+        // Client
+        doc.setFontSize(9);
+        doc.setFont("helvetica", "bold");
+        doc.text("CLIENTE:", MARGIN, y);
+        y += 5;
+        doc.setFont("helvetica", "normal");
+        doc.text(data.client.name.substring(0, 30), MARGIN, y);
+        y += 4;
+        doc.text(`C.C: ${data.client.cedula}`, MARGIN, y);
+        y += 4;
+        doc.text(`Tel: ${data.client.phone}`, MARGIN, y);
+        y += 8;
+
+        // Items Table (Identical to Page 1)
+        doc.setFontSize(9);
+        doc.setFont("helvetica", "bold");
+
+        // Header Rects
+        doc.rect(MARGIN, y - 3, colWidths.cant, 5);
+        doc.rect(MARGIN + colWidths.cant, y - 3, colWidths.desc, 5);
+        doc.rect(MARGIN + colWidths.cant + colWidths.desc, y - 3, colWidths.valor, 5);
+
+        doc.text("CANT", MARGIN + colWidths.cant / 2, y, { align: "center" });
+        doc.text("DESCRIPCION", MARGIN + colWidths.cant + 2, y);
+        doc.text("VALOR", MARGIN + colWidths.cant + colWidths.desc + colWidths.valor / 2, y, { align: "center" });
+        y += 4;
+
+        doc.setFont("helvetica", "normal");
+        data.items.forEach(item => {
+            const descWidth = colWidths.desc - 3;
+            const splitDesc = doc.splitTextToSize(item.description || '', descWidth);
+            const numberOfLines = splitDesc.length;
+            const hasNotes = item.notes && item.notes !== '';
+            let contentHeight = (numberOfLines * 4);
+            if (hasNotes) contentHeight += 4;
+            const rowHeight = Math.max(6, contentHeight + 2);
+            const rowStartY = y - 2;
+
+            doc.rect(MARGIN, rowStartY, colWidths.cant, rowHeight);
+            doc.rect(MARGIN + colWidths.cant, rowStartY, colWidths.desc, rowHeight);
+            doc.rect(MARGIN + colWidths.cant + colWidths.desc, rowStartY, colWidths.valor, rowHeight);
+
+            doc.setFontSize(9);
+            doc.text(item.quantity.toString(), MARGIN + colWidths.cant / 2, y + 2, { align: "center" });
+            doc.text(splitDesc, MARGIN + colWidths.cant + 2, y + 2);
+
+            if (hasNotes) {
+                const noteY = y + (numberOfLines * 4) + 1;
+                doc.setFontSize(7);
+                doc.setFont("helvetica", "bolditalic");
+                doc.text(`(${item.notes})`, MARGIN + colWidths.cant + 2, noteY);
+                doc.setFont("helvetica", "normal");
+                doc.setFontSize(9);
+            }
+
+            doc.text(`$${new Intl.NumberFormat('es-CO').format(item.price)}`, MARGIN + colWidths.cant + colWidths.desc + colWidths.valor / 2, y + 2, { align: "center" });
+            y += rowHeight;
+        });
+
+        y += 4;
+
+        // Total Section
+        doc.setFontSize(10);
+        doc.setFont("helvetica", "bold");
+        const totalBoxY2 = y;
+        doc.rect(MARGIN, totalBoxY2, WIDTH, 6);
+        doc.text("Total $:", MARGIN + 2, totalBoxY2 + 4);
+        doc.text(`${new Intl.NumberFormat('es-CO').format(pendingBalance)}`, 80 - MARGIN - 12, totalBoxY2 + 4, { align: "right" });
+        y += 8;
+
+        // Payment Details Grid
+        doc.setFontSize(7);
+        doc.setFont("helvetica", "bold");
+        const payBoxY2 = y;
+
+        doc.rect(MARGIN, payBoxY2, payColWidth, 5);
+        doc.rect(MARGIN + payColWidth, payBoxY2, payColWidth, 5);
+        doc.rect(MARGIN + payColWidth * 2, payBoxY2, payColWidth, 5);
+        doc.rect(MARGIN + payColWidth * 3, payBoxY2, payColWidth, 5);
+
+        doc.text("No. artículos", MARGIN + payColWidth / 2, payBoxY2 + 3.5, { align: "center" });
+        doc.text("Abono", MARGIN + payColWidth * 1.5, payBoxY2 + 3.5, { align: "center" });
+        doc.text("Total", MARGIN + payColWidth * 2.5, payBoxY2 + 3.5, { align: "center" });
+        doc.text("Saldo", MARGIN + payColWidth * 3.5, payBoxY2 + 3.5, { align: "center" });
+
+        y += 5;
+
+        // Values
+        doc.setFont("helvetica", "normal");
+        doc.rect(MARGIN, y, payColWidth, 5);
+        doc.rect(MARGIN + payColWidth, y, payColWidth, 5);
+        doc.rect(MARGIN + payColWidth * 2, y, payColWidth, 5);
+        doc.rect(MARGIN + payColWidth * 3, y, payColWidth, 5);
+
+        doc.text(totalItems.toString(), MARGIN + payColWidth / 2, y + 3.5, { align: "center" });
+        doc.text(new Intl.NumberFormat('es-CO').format(data.paidAmount), MARGIN + payColWidth * 1.5, y + 3.5, { align: "center" });
+        doc.text(new Intl.NumberFormat('es-CO').format(data.totalValue), MARGIN + payColWidth * 2.5, y + 3.5, { align: "center" });
+        doc.text(new Intl.NumberFormat('es-CO').format(balance), MARGIN + payColWidth * 3.5, y + 3.5, { align: "center" });
+
+        y += 8;
+
+        // Payment Method
+        doc.setFontSize(8);
+        doc.setFont("helvetica", "bold");
+        doc.text("Medios de pago", 40, y, { align: "center" });
+        y += 4;
+        doc.setFont("helvetica", "normal");
+        doc.text(balance <= 0 ? "PAGADO" : `ABONO: $${new Intl.NumberFormat('es-CO').format(data.paidAmount)}`, 40, y, { align: "center" });
+        y += 8;
+
+        // QR Code (Center, Same Size)
+        if (qrCodeDataUrl) {
+            y += 0; // Removed extra space to move QR up
+            doc.addImage(qrCodeDataUrl, 'PNG', 25, y, 30, 30);
+            y += 32;
+            doc.setFontSize(7);
+            doc.text("Representación Gráfica", 40, y, { align: "center" });
+        }
+
 
     } else {
         // --- STANDARD LETTER FORMAT ---
@@ -439,4 +582,179 @@ export const generateInvoicePDF = async (data: InvoiceData, format: 'letter' | '
     return pdfBlob;
 
     return pdfBlob;
+    return pdfBlob;
+};
+
+interface ShiftReportData {
+    turnNumber: number;
+    startDate: string;
+    endDate: string;
+    totalCash: number;
+    totalDigital: number;
+    totalExpenses: number;
+    netCash: number;
+    transactions: any[];
+    expenses: any[];
+    digitalBreakdown?: Record<string, { count: number; total: number }>;
+    reportTitle?: string; // Optional custom title
+}
+
+export const generateShiftReportPDF = async (data: ShiftReportData, autoDownload: boolean = true) => {
+    return new Promise<Blob>((resolve, reject) => {
+        try {
+            const doc = new jsPDF({
+                orientation: 'portrait',
+                unit: 'mm',
+                format: [80, 2000], // 80mm ticket
+            });
+
+            const MARGIN = 2;
+            const WIDTH = 72;
+            let y = 10;
+
+            // Header
+            doc.setFontSize(14);
+            doc.setFont("helvetica", "bold");
+            doc.text("LAVASECO ORQUÍDEAS", 40, y, { align: "center" });
+            y += 6;
+
+            doc.setFontSize(10);
+            // Use custom title or default to Shift #
+            const title = data.reportTitle || `REPORTE DE CAJA - TURNO #${data.turnNumber}`;
+            doc.text(title, 40, y, { align: "center" });
+            y += 6;
+
+            doc.setFontSize(8);
+            doc.setFont("helvetica", "normal");
+            doc.text(`Fecha: ${formatDateForDisplay(new Date())}`, 40, y, { align: "center" });
+            y += 5;
+
+            // Range
+            doc.setFontSize(7);
+            doc.text(`Desde: ${formatDateForDisplay(data.startDate)}`, 40, y, { align: "center" });
+            y += 4;
+            doc.text(`Hasta: ${formatDateForDisplay(data.endDate)}`, 40, y, { align: "center" });
+            y += 8;
+
+            // Financial Summary
+            doc.setFontSize(11);
+            doc.setFont("helvetica", "bold");
+            doc.text("RESUMEN FINANCIERO", MARGIN, y);
+            doc.line(MARGIN, y + 1, 80 - MARGIN, y + 1);
+            y += 6;
+
+            const drawRow = (label: string, value: number, isNegative: boolean = false, isBold: boolean = false) => {
+                doc.setFont("helvetica", isBold ? "bold" : "normal");
+                doc.setFontSize(9);
+                doc.text(label, MARGIN, y);
+                doc.text(
+                    `${isNegative ? '-' : ''}$${new Intl.NumberFormat('es-CO').format(value)}`,
+                    78,
+                    y,
+                    { align: "right" }
+                );
+                y += 5;
+            };
+
+            drawRow("Ingresos Efectivo (+)", data.totalCash);
+
+            // Digital breakdown
+            if (data.digitalBreakdown) {
+                Object.entries(data.digitalBreakdown).forEach(([method, details]) => {
+                    // Only if > 0
+                    if (details.total > 0) {
+                        doc.setFontSize(8);
+                        doc.setFont("helvetica", "italic");
+                        doc.text(`  • ${method}: $${new Intl.NumberFormat('es-CO').format(details.total)}`, MARGIN + 2, y);
+                        y += 4;
+                    }
+                });
+            }
+
+            drawRow("Ingresos Digital (+)", data.totalDigital);
+            drawRow("Gastos (-)", data.totalExpenses, true);
+
+            doc.line(MARGIN, y, 78, y);
+            y += 5;
+
+            // Net Cash
+            doc.setFontSize(12);
+            doc.setFont("helvetica", "bold");
+            doc.text("EFECTIVO EN CAJA", MARGIN, y);
+            doc.text(`$${new Intl.NumberFormat('es-CO').format(data.netCash)}`, 78, y, { align: "right" });
+            y += 8;
+
+            // Expenses List
+            if (data.expenses.length > 0) {
+                doc.setFontSize(10);
+                doc.setFont("helvetica", "bold");
+                doc.text("DETALLE DE GASTOS", MARGIN, y);
+                doc.line(MARGIN, y + 1, 80 - MARGIN, y + 1);
+                y += 6;
+
+                doc.setFontSize(8);
+                doc.setFont("helvetica", "normal");
+
+                data.expenses.forEach(exp => {
+                    const descLines = doc.splitTextToSize(`• ${exp.description}`, 50);
+                    doc.text(descLines, MARGIN, y);
+                    doc.text(`$${new Intl.NumberFormat('es-CO').format(exp.amount)}`, 78, y, { align: "right" });
+                    y += (descLines.length * 4) + 2;
+                });
+                y += 4;
+            }
+
+            // Signatures
+            y += 10;
+            doc.line(MARGIN, y, 35, y);
+            doc.line(45, y, 80 - MARGIN, y);
+            y += 4;
+            doc.setFontSize(7);
+            doc.text("FIRMA RESPONSABLE", 18, y, { align: "center" });
+            doc.text("REVISADO", 60, y, { align: "center" });
+
+            // Output
+            const pdfBlob = doc.output('blob');
+
+            if (autoDownload) {
+                const url = URL.createObjectURL(pdfBlob);
+
+                // Create invisible iframe for printing
+                const iframe = document.createElement('iframe');
+                iframe.style.display = 'none';
+                iframe.src = url;
+                document.body.appendChild(iframe);
+
+                // Wait for load then print
+                iframe.onload = () => {
+                    // Small delay to ensure rendering
+                    setTimeout(() => {
+                        iframe.contentWindow?.focus();
+
+                        // Use onafterprint to wait for the dialog to Close (Print or Cancel)
+                        if (iframe.contentWindow) {
+                            iframe.contentWindow.onafterprint = () => {
+                                resolve(pdfBlob);
+                                // Cleanup after resolution
+                                setTimeout(() => {
+                                    document.body.removeChild(iframe);
+                                    URL.revokeObjectURL(url);
+                                }, 100);
+                            };
+                        }
+
+                        // Trigger Print
+                        iframe.contentWindow?.print();
+
+                        // Fallback: If onafterprint doesn't fire (some browsers), resolve after a generous timeout (e.g., 5 mins)
+                        // or just rely on the user to interact. Given the user MUST print, we prefer waiting.
+                    }, 500);
+                };
+            } else {
+                resolve(pdfBlob);
+            }
+        } catch (error) {
+            reject(error);
+        }
+    });
 };

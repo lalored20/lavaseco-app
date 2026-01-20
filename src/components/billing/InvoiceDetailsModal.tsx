@@ -6,6 +6,7 @@ import { toast } from 'sonner';
 import { registerPayment, deliverOrder } from '@/lib/actions/billing';
 import { useCashRegister } from '@/context/CashRegisterContext';
 import { generateInvoicePDF } from '@/lib/pdfGenerator';
+import { updateInvoice } from '@/lib/billing/offline-storage';
 
 interface InvoiceDetailsModalProps {
     invoice: any;
@@ -16,10 +17,13 @@ interface InvoiceDetailsModalProps {
     isDeliveryView?: boolean; // New Prop for Delivery View
     isHistoryView?: boolean; // New Prop for History View
     isCashView?: boolean; // New Prop for Cash Register View (Disable Marcas logic)
+    isCashView?: boolean; // New Prop for Cash Register View (Disable Marcas logic)
     onInvoiceUpdate?: (invoice: any) => void;
+    onOrganize?: (id: string, ticketNumber: number) => void; // New Prop for Organize Action
+    onMarkMissing?: (id: string, ticketNumber: number) => void; // New Prop for Missing Action
 }
 
-export function InvoiceDetailsModal({ invoice, isOpen, onClose, isLogisticsView = false, isMissingView = false, isDeliveryView = false, isHistoryView = false, isCashView = false, onInvoiceUpdate }: InvoiceDetailsModalProps) {
+export function InvoiceDetailsModal({ invoice, isOpen, onClose, isLogisticsView = false, isMissingView = false, isDeliveryView = false, isHistoryView = false, isCashView = false, onInvoiceUpdate, onOrganize, onMarkMissing }: InvoiceDetailsModalProps) {
     const router = useRouter();
     const { openRegister } = useCashRegister();
     const [isNoteModalOpen, setIsNoteModalOpen] = useState(false);
@@ -43,21 +47,98 @@ export function InvoiceDetailsModal({ invoice, isOpen, onClose, isLogisticsView 
     // We check both 'status' and 'logisticsStatus' to be robust across different views (Logistics vs Billing)
     const isDelivered = localInvoice?.status === 'delivered' || localInvoice?.logisticsStatus === 'delivered' || localInvoice?.status === 'entregado';
     // If invoice is Ready (Logistics Complete OR En Proceso) AND NOT Delivered, treat as Ready/Delivery View
-    const isReadyForDelivery = (localInvoice?.logisticsStatus === 'complete' || localInvoice?.orderStatus === 'EN_PROCESO') && !isDelivered;
+    // FIX: Include orderStatus to match List logic
+    const isReadyForDelivery = (
+        localInvoice?.logisticsStatus === 'complete' ||
+        localInvoice?.status === 'EN_PROCESO' ||
+        localInvoice?.orderStatus === 'EN_PROCESO' ||
+        localInvoice?.status === 'ready'
+    ) && !isDelivered;
 
     const effectiveDeliveryView = isDeliveryView || isReadyForDelivery;
     const effectiveHistoryView = isHistoryView || isDelivered;
 
-    // Sync local state with prop when server data updates
+    // Sync local state with prop when server data updates AND check for fresher offline data
     useEffect(() => {
         if (invoice) {
-            setLocalInvoice({
+            // Initial load from props
+            let freshInvoice = {
                 ...invoice,
                 paidAmount: invoice.paidAmount || invoice.payment?.amount || 0,
                 totalValue: invoice.totalValue || 0
-            });
+            };
+
+            // Attempt to hydrate from Dexie/Local Storage for latest status
+            // This fixes the "Facturas Creadas" stale status issue
+            const offlineKey = `lavaseco_invoice_${invoice.id}`; // Assumption on key pattern, or we check logs
+
+            // Re-check logs to determine if it was delivered locally
+            const localLogs = JSON.parse(localStorage.getItem(`lavaseco_logs_${invoice.id}`) || '[]');
+            const wasDeliveredLocally = localLogs.some((l: any) => l.type === 'STATUS_CHANGE' && (l.description === 'Pedido Entregado' || l.status === 'delivered'));
+
+            if (wasDeliveredLocally) {
+                freshInvoice.status = 'delivered';
+                freshInvoice.logisticsStatus = 'delivered';
+                freshInvoice.paymentStatus = 'CANCELADO'; // Delivery implies payment usually
+            }
+
+            setLocalInvoice(freshInvoice);
         }
-    }, [invoice]);
+    }, [invoice, isOpen]);
+
+    // ... (keep existing code)
+
+    const onDeliverLogic = async () => {
+        const now = new Date().toISOString();
+
+        // 1. Log Delivery Locally
+        const deliverLog = {
+            type: 'STATUS_CHANGE',
+            description: 'Pedido Entregado',
+            date: now
+        };
+        const existingLogs = JSON.parse(localStorage.getItem(`lavaseco_logs_${localInvoice.id}`) || '[]');
+        localStorage.setItem(`lavaseco_logs_${localInvoice.id}`, JSON.stringify([...existingLogs, deliverLog]));
+
+        // 2. Optimistic UI Update immediately
+        setLocalInvoice((prev: any) => ({
+            ...prev,
+            status: 'delivered',
+            logisticsStatus: 'delivered',
+            deliveryDate: now,
+            paymentStatus: prev.paymentStatus === 'PAGADO' ? 'CANCELADO' : prev.paymentStatus
+        }));
+
+        // 3. Update Local DB (Dexie) - CRITICAL for Delivery List Sync
+        await updateInvoice(localInvoice.id, {
+            status: 'delivered',
+            logisticsStatus: 'delivered',
+            orderStatus: 'delivered',
+            deliveryDate: now,
+            paymentStatus: 'CANCELADO', // Delivery implies settled
+            updatedAt: now
+        });
+
+        // 4. Server Action
+        const res = await deliverOrder(localInvoice.id);
+
+        if (res?.success) {
+            toast.success("¡Pedido Entregado Exitosamente!");
+            // Update parent list
+            if (onInvoiceUpdate) onInvoiceUpdate({
+                ...localInvoice,
+                status: 'delivered',
+                logisticsStatus: 'delivered',
+                paymentStatus: 'CANCELADO',
+                paidAmount: localInvoice.totalValue,
+                deliveryDate: now
+            });
+            onClose();
+            router.refresh();
+        } else {
+            toast.error("Error al entregar el pedido");
+        }
+    };
 
     // Load persisted brands and notes on mount/open
     useEffect(() => {
@@ -278,22 +359,29 @@ export function InvoiceDetailsModal({ invoice, isOpen, onClose, isLogisticsView 
     };
 
     const handleDeliverFromModal = async (shouldPayFirst: boolean) => {
-        try {
-            if (shouldPayFirst && remainingBalance > 0) {
-                await processGlobalPayment(remainingBalance, 'Efectivo', true);
-            }
+        // Old Logic: if (window.confirm("...")) ...
+        // New Logic: Use OpenRegister with 0 balance for the confirmation UI
 
-            // Server Action for Delivery
-            await deliverOrder(localInvoice.id);
-
-            toast.success("¡Pedido Entregado!", {
-                description: shouldPayFirst ? "Saldo cancelado y entregado." : "Confirmado."
-            });
-            onClose();
-            router.refresh();
-        } catch (error) {
-            toast.error("Error al entregar el pedido");
+        // If shouldPayFirst is true, it means we are in the "Cancelar y Entregar" path (handled by handleOpenDeliver usually, but if called directly):
+        if (shouldPayFirst && remainingBalance > 0) {
+            // This path is usually triggered by handleOpenDeliver -> openRegister, so we might not need this branch if buttons are wired correctly.
+            // But for safety/refactor:
+            handleOpenDeliver();
+            return;
         }
+
+        // Zero Balance Delivery
+        openRegister({
+            amountToPay: 0,
+            allowAmountEdit: false,
+            clientName: localInvoice.client.name,
+            customTitle: 'Confirmar Entrega',
+            reference: `Entrega - Factura #${localInvoice.ticketNumber}`,
+            onConfirm: async (result) => {
+                // Should be 0 payment
+                await onDeliverLogic();
+            }
+        });
     };
 
     const handleSaveNote = async () => {
@@ -361,9 +449,6 @@ export function InvoiceDetailsModal({ invoice, isOpen, onClose, isLogisticsView 
     };
 
     const handleOpenPrintModal = () => {
-        // Option 1: Start with empty, or Option 2: Pre-fill with existing note.
-        // User implied: "if I add a note...". Better to start clean or with existing generalNote.
-        // Let's pre-fill with existing generalNote to avoid overwriting it if they just want to print.
         setPrintNote(localInvoice.generalNote || '');
         setIsPrintModalOpen(true);
     };
@@ -376,6 +461,7 @@ export function InvoiceDetailsModal({ invoice, isOpen, onClose, isLogisticsView 
                 amountToPay: remaining,
                 allowAmountEdit: false,
                 clientName: localInvoice.client.name,
+                customTitle: 'Confirmar Entrega', // Updated Title
                 reference: `Entrega - Factura #${localInvoice.ticketNumber}`,
                 onConfirm: async (result) => {
                     // 1. Pay
@@ -385,33 +471,12 @@ export function InvoiceDetailsModal({ invoice, isOpen, onClose, isLogisticsView 
                 }
             });
         } else {
-            // Confirm Deliver without Payment (Maybe a small confirmation alert? Native confirm is simpler for now)
-            if (window.confirm("¿Confirmar entrega del pedido?")) {
-                onDeliverLogic();
-            }
+            // Zero Balance Delivery Logic (Same as handleDeliverFromModal(false))
+            handleDeliverFromModal(false);
         }
     };
 
-    const onDeliverLogic = async () => {
-        // Log Delivery
-        const deliverLog = {
-            type: 'STATUS_CHANGE',
-            description: 'Pedido Entregado',
-            date: new Date().toISOString()
-        };
-        const existingLogs = JSON.parse(localStorage.getItem(`lavaseco_logs_${localInvoice.id}`) || '[]');
-        localStorage.setItem(`lavaseco_logs_${localInvoice.id}`, JSON.stringify([...existingLogs, deliverLog]));
 
-        const res = await deliverOrder(localInvoice.id);
-
-        if (res?.success) {
-            toast.success("¡Pedido Entregado Exitosamente!");
-            onClose();
-            if (onInvoiceUpdate) onInvoiceUpdate({ ...localInvoice, status: 'delivered', paymentStatus: 'CANCELADO', paidAmount: localInvoice.totalValue });
-        } else {
-            toast.error("Error al entregar el pedido");
-        }
-    };
 
     const handleConfirmPrint = async () => {
         if (!localInvoice) return;
@@ -519,11 +584,56 @@ export function InvoiceDetailsModal({ invoice, isOpen, onClose, isLogisticsView 
                         {/* Status Banner */}
                         <div className="flex items-center justify-between bg-slate-50 p-4 rounded-2xl border border-slate-100">
                             <div className="flex items-center gap-3">
-                                <div className={`w-2 h-2 rounded-full ${localInvoice.paymentStatus === 'CANCELADO' || localInvoice.paymentStatus === 'PAGADO' ? 'bg-green-500' : localInvoice.paymentStatus === 'ABONO' ? 'bg-yellow-500' : 'bg-slate-400'}`}></div>
-                                <span className="font-bold text-slate-700 uppercase text-sm">Estado: {localInvoice.paymentStatus === 'PAGADO' ? 'CANCELADO' : (localInvoice.paymentStatus || 'PENDIENTE')}</span>
+                                {(() => {
+                                    // Determine Status Label and Color
+                                    let statusLabel = 'POR ORGANIZAR'; // Default
+                                    let statusColor = 'bg-slate-400';
+
+                                    const isCancelled = localInvoice.status === 'CANCELADO' || localInvoice.paymentStatus === 'CANCELADO';
+
+                                    // Robust check for Delivered
+                                    const isDeliveredStatus =
+                                        localInvoice.status?.toLowerCase() === 'delivered' ||
+                                        localInvoice.status?.toLowerCase() === 'entregado' ||
+                                        localInvoice.logisticsStatus === 'delivered' ||
+                                        effectiveHistoryView; // Reuse the effective view logic which is already trusted
+
+                                    // Robust check for Ready to Deliver
+                                    const isReady =
+                                        localInvoice.logisticsStatus === 'complete' || // FIX: Match list logic (complete vs delivered)
+                                        localInvoice.orderStatus === 'EN_PROCESO' || // FIX: Include orderStatus from list logic
+                                        isReadyForDelivery ||
+                                        localInvoice.location?.includes('Entregar') ||
+                                        effectiveDeliveryView; // Reuse effective view logic
+
+                                    // FIX: Priority Reordered - Delivered > Cancelled > Ready > Paid > Pending
+                                    if (isDeliveredStatus) {
+                                        statusLabel = 'ENTREGADO';
+                                        statusColor = 'bg-green-500';
+                                    } else if (isCancelled) {
+                                        statusLabel = 'CANCELADO';
+                                        statusColor = 'bg-red-500';
+                                    } else if (isReady) {
+                                        statusLabel = 'POR ENTREGAR';
+                                        statusColor = 'bg-blue-500';
+                                    } else if (localInvoice.paymentStatus === 'PAGADO') {
+                                        statusLabel = 'PAGADO';
+                                        statusColor = 'bg-green-500'; // Green but labeled PAGADO if not formally delivered yet
+                                    } else {
+                                        statusLabel = 'POR ORGANIZAR';
+                                        statusColor = 'bg-amber-400';
+                                    }
+
+                                    return (
+                                        <>
+                                            <div className={`w-2 h-2 rounded-full ${statusColor}`}></div>
+                                            <span className="font-bold text-slate-700 uppercase text-sm">Estado: {statusLabel}</span>
+                                        </>
+                                    );
+                                })()}
                             </div>
                             <div className="text-right flex flex-col items-end gap-1">
-                                {effectiveHistoryView ? (
+                                {effectiveHistoryView || localInvoice?.status === 'delivered' || localInvoice?.logisticsStatus === 'delivered' ? (
                                     <>
                                         <div className="flex gap-6 text-right items-end">
                                             <div className="flex flex-col items-end">
@@ -792,7 +902,7 @@ export function InvoiceDetailsModal({ invoice, isOpen, onClose, isLogisticsView 
                                                 Registrar Abono
                                             </button>
                                             <button
-                                                onClick={() => handleDeliverFromModal(true)}
+                                                onClick={handleOpenDeliver}
                                                 className="flex-1 flex items-center justify-center gap-2 px-4 py-2.5 rounded-xl text-sm font-bold text-rose-600 bg-rose-50 hover:bg-rose-100 transition-colors border border-rose-200"
                                             >
                                                 <CreditCard size={18} />
@@ -821,6 +931,39 @@ export function InvoiceDetailsModal({ invoice, isOpen, onClose, isLogisticsView 
                                         </>
                                     )
                                 )
+                            )}
+
+                            {/* --- LOGISTICS ACTION BUTTONS --- */}
+                            {(isLogisticsView || isMissingView) && (
+                                <>
+                                    {/* Black Button: 'Todavía no está' (Missing) - Styled like Cancel */}
+                                    {onMarkMissing && (
+                                        <button
+                                            onClick={() => {
+                                                onMarkMissing(localInvoice.id, localInvoice.ticketNumber);
+                                                onClose();
+                                            }}
+                                            className="flex-1 flex items-center justify-center gap-2 px-4 py-2.5 rounded-xl text-sm font-bold text-slate-700 bg-slate-100 hover:bg-slate-200 transition-colors border border-slate-200"
+                                        >
+                                            <X size={18} />
+                                            Todavía no está
+                                        </button>
+                                    )}
+
+                                    {/* Green Button: 'Ya está' (Organized/Found) - Styled like Payment */}
+                                    {onOrganize && (
+                                        <button
+                                            onClick={() => {
+                                                onOrganize(localInvoice.id, localInvoice.ticketNumber);
+                                                onClose();
+                                            }}
+                                            className="flex-1 flex items-center justify-center gap-2 px-4 py-2.5 rounded-xl text-sm font-bold text-emerald-600 bg-emerald-50 hover:bg-emerald-100 transition-colors border border-emerald-200"
+                                        >
+                                            <CheckCircle2 size={18} />
+                                            {isLogisticsView ? 'Ya está' : 'Ya llegó'}
+                                        </button>
+                                    )}
+                                </>
                             )}
                         </div>
 

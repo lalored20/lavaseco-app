@@ -16,7 +16,7 @@ model memory_nodes {
   properties Json?                  @default("{}")
   created_at DateTime?              @default(now()) @db.Timestamptz(6)
   updated_at DateTime?              @default(now()) @db.Timestamptz(6)
-  embedding  Unsupported("vector")?
+  // embedding  Unsupported("vector")?
   importance Float?                 @default(1.0)
   metadata   Json?                  @default("{}")
 
@@ -42,10 +42,22 @@ model memory_relations {
 // --- LAVASECO APP MODELS ---
 
 
+enum Role {
+  ADMIN
+  STAFF
+}
+
+enum ShiftStatus {
+  OPEN
+  CLOSED
+}
+
 model User {
   id                String   @id @default(cuid())
   email             String   @unique
+  name              String?  // Nombre del cajero/admin para mostrar en reportes
   passwordHash      String
+  role              Role     @default(STAFF)
   
   isVerified        Boolean  @default(false)
   verificationCode  String?
@@ -54,6 +66,8 @@ model User {
   verifAttempts     Int      @default(0)
   lastVerifSentAt   DateTime?
   lockoutUntil      DateTime?
+  
+  shifts            CashShift[] // Relación con los turnos
   
   createdAt         DateTime @default(now())
   updatedAt         DateTime @updatedAt
@@ -130,4 +144,36 @@ model PaymentLog {
   type        String   @default("ABONO") // "ABONO" or "CANCELACION"
   createdAt   DateTime @default(now())
   note        String?
+}
+
+model CashShift {
+  id              String   @id @default(uuid())
+  date            DateTime @default(now())
+  
+  startTime       DateTime
+  endTime         DateTime? // Puede ser nulo si está abierto
+  
+  status          ShiftStatus @default(OPEN)
+  
+  userId          String? // Usuario que abrió el turno (Opcional para compatibilidad con datos viejos)
+  user            User?   @relation(fields: [userId], references: [id])
+  
+  turnNumber      Int      @default(1)
+  
+  cashCount       Float    @default(0)
+  digitalCount    Float    @default(0)
+  expenseCount    Float    @default(0)
+  
+  totalCalculated Float    @default(0)
+  
+  closedBy        String? // Nombre del que cerró, redundancies are OK for logs
+  
+  createdAt       DateTime @default(now())
+}
+
+model AllowedAdmin {
+  id        String   @id @default(uuid())
+  email     String   @unique
+  addedBy   String?  // Correo de quien lo agregó
+  createdAt DateTime @default(now())
 }

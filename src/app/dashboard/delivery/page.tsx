@@ -5,7 +5,6 @@ import { motion, AnimatePresence } from 'framer-motion';
 import {
     CheckCircle2,
     Search,
-    Clock,
     Phone,
     User,
     FileText,
@@ -18,6 +17,8 @@ import { toast } from 'sonner';
 import { useInvoices } from '@/hooks/useInvoices';
 import { InvoiceDetailsModal } from '@/components/billing/InvoiceDetailsModal';
 import { registerPayment } from '@/lib/actions/billing';
+import { useCashRegister } from '@/context/CashRegisterContext';
+import { useRouter } from 'next/navigation';
 
 // --- HELPER: STATUS BADGE LOGIC ---
 const getPaymentStatus = (invoice: any) => {
@@ -31,75 +32,76 @@ const getPaymentStatus = (invoice: any) => {
 
 export default function DeliveryPage() {
     const { invoices, deliverInvoice } = useInvoices();
+    const { openRegister } = useCashRegister();
+    const router = useRouter();
     const [searchTerm, setSearchTerm] = useState('');
     const [selectedInvoice, setSelectedInvoice] = useState<any>(null);
-    const [confirmInvoice, setConfirmInvoice] = useState<any>(null);
-    const [paymentMethod, setPaymentMethod] = useState('Efectivo');
-    const [isSubmitting, setIsSubmitting] = useState(false);
-
-    // Filter logic: Only show invoices that are organized (status: 'organized' or similar logic where they are ready for delivery)
-    // AND NOT yet delivered.
-    // Assuming 'organized' status exists or we infer it.
-    // Based on previous convos, "Organizar Entrada" marks them.
-    // Let's assume a status 'ready' or refer to where 'markFound' puts them.
-    // "markFound" in missing items puts them back to... what?
-    // Let's assume we filter for: status !== 'delivered' and (status === 'organized' or something).
-    // For now, I will fetch ALL non-delivered invoices for demonstration or filter by a specific 'ready' flag if available.
-    // Actually, user said "Entregado" (Delivery Module).
-    // So this page shows "Items ready to deliver".
 
     // FILTER: Show items that are ready for delivery.
     // Condition: Logistics Status is 'complete' (Organized) AND Status is NOT 'delivered'.
     const readyInvoices = invoices.filter(inv => inv.logisticsStatus === 'complete' && inv.status !== 'delivered');
 
-    const handleDeliver = (e: React.MouseEvent, invoice: any) => {
-        e.stopPropagation();
-        setPaymentMethod('Efectivo');
-        setConfirmInvoice(invoice);
+    // --- SHARED DELIVERY LOGIC ---
+    const handleDeliverFlow = (invoice: any) => {
+        // Calculate pending directly from invoice data
+        const totalPaid = invoice.payment?.amount || invoice.paidAmount || (invoice.payments?.reduce((sum: number, p: any) => sum + (Number(p.amount) || 0), 0) || 0);
+        const remaining = Math.max(0, (invoice.totalValue || 0) - totalPaid);
+
+        openRegister({
+            amountToPay: remaining,
+            description: `Entrega de Factura #${invoice.ticketNumber}`,
+            clientName: invoice.client?.name || 'Cliente General',
+            relatedInvoiceId: invoice.id,
+            customTitle: 'Confirmar Entrega', // FORCE CUSTOM TITLE
+            onConfirm: async (result) => {
+                const { method, amount } = result;
+                try {
+                    // 1. Register Payment if needed
+                    if (amount > 0) {
+                        const newLog = {
+                            type: 'PAYMENT',
+                            description: `Pago Total al Entregar (${method})`,
+                            amount: amount,
+                            date: new Date().toISOString()
+                        };
+                        const existingLogs = JSON.parse(localStorage.getItem(`lavaseco_logs_${invoice.id}`) || '[]');
+                        localStorage.setItem(`lavaseco_logs_${invoice.id}`, JSON.stringify([...existingLogs, newLog]));
+
+                        // Server action
+                        await registerPayment(invoice.id, amount, method);
+                    }
+
+                    // 2. Log Delivery locally
+                    const deliverLog = {
+                        type: 'STATUS_CHANGE',
+                        description: 'Pedido Entregado',
+                        date: new Date().toISOString()
+                    };
+                    const logsAfter = JSON.parse(localStorage.getItem(`lavaseco_logs_${invoice.id}`) || '[]');
+                    localStorage.setItem(`lavaseco_logs_${invoice.id}`, JSON.stringify([...logsAfter, deliverLog]));
+
+                    // 3. Execute Delivery (Context Hook)
+                    const success = await deliverInvoice(invoice.id);
+
+                    if (success) {
+                        toast.success(`Factura #${invoice.ticketNumber} entregada`, {
+                            description: remaining > 0 ? "Saldo cancelado y servicio completado." : "Servicio entregado al cliente."
+                        });
+                        router.refresh();
+                    } else {
+                        toast.error("Error al marcar como entregado");
+                    }
+                } catch (error) {
+                    console.error("Delivery error:", error);
+                    toast.error("Error procesando la entrega");
+                }
+            }
+        });
     };
 
-    const executeDeliver = async () => {
-        if (!confirmInvoice) return;
-        setIsSubmitting(true);
-
-        // Calculate pending
-        const totalPaid = confirmInvoice.payment?.amount || confirmInvoice.paidAmount || (confirmInvoice.payments?.reduce((sum: number, p: any) => sum + (Number(p.amount) || 0), 0) || 0);
-        const remaining = Math.max(0, (confirmInvoice.totalValue || 0) - totalPaid);
-
-        // 1. Pay if needed
-        if (remaining > 0) {
-            const newLog = {
-                type: 'PAYMENT',
-                description: `Pago Total al Entregar (${paymentMethod})`,
-                amount: remaining,
-                date: new Date().toISOString()
-            };
-            const existingLogs = JSON.parse(localStorage.getItem(`lavaseco_logs_${confirmInvoice.id}`) || '[]');
-            localStorage.setItem(`lavaseco_logs_${confirmInvoice.id}`, JSON.stringify([...existingLogs, newLog]));
-
-            await registerPayment(confirmInvoice.id, remaining, paymentMethod);
-        }
-
-        // 2. Log Delivery
-        const deliverLog = {
-            type: 'STATUS_CHANGE',
-            description: 'Pedido Entregado',
-            date: new Date().toISOString()
-        };
-        const logsAfter = JSON.parse(localStorage.getItem(`lavaseco_logs_${confirmInvoice.id}`) || '[]');
-        localStorage.setItem(`lavaseco_logs_${confirmInvoice.id}`, JSON.stringify([...logsAfter, deliverLog]));
-
-        // 3. Deliver (Use hook to update local + server)
-        const success = await deliverInvoice(confirmInvoice.id);
-
-        if (success) {
-            toast.success(`Factura #${confirmInvoice.ticketNumber} entregada`, {
-                description: remaining > 0 ? "Saldo cancelado y servicio completado." : "Servicio entregado al cliente."
-            });
-        }
-
-        setIsSubmitting(false);
-        setConfirmInvoice(null);
+    const handleDeliverClick = (e: React.MouseEvent, invoice: any) => {
+        e.stopPropagation();
+        handleDeliverFlow(invoice);
     };
 
     // --- SEARCH LOGIC (Reuse from Missing/Created) ---
@@ -278,7 +280,7 @@ export default function DeliveryPage() {
 
                                 {/* Action */}
                                 <button
-                                    onClick={(e) => handleDeliver(e, item)}
+                                    onClick={(e) => handleDeliverClick(e, item)}
                                     // Modified Button: Even SOFTER Green (emerald-400), margin right preserved
                                     className="bg-emerald-400 hover:bg-emerald-500 text-white font-bold py-3 px-8 rounded-xl shadow-sm shadow-emerald-100 transition-all flex items-center justify-center gap-2 whitespace-nowrap w-full md:w-auto mt-2 md:mt-0 mr-4"
                                 >
@@ -292,99 +294,6 @@ export default function DeliveryPage() {
                 )}
             </div>
 
-            {/* CONFIRM DELIVERY MODAL */}
-            <AnimatePresence>
-                {confirmInvoice && (
-                    <div className="fixed inset-0 z-[60] flex items-center justify-center bg-black/50 backdrop-blur-sm p-4" onClick={(e) => e.stopPropagation()}>
-                        <motion.div
-                            initial={{ opacity: 0, scale: 0.95 }}
-                            animate={{ opacity: 1, scale: 1 }}
-                            exit={{ opacity: 0, scale: 0.95 }}
-                            className="bg-white w-full max-w-md rounded-3xl shadow-2xl overflow-hidden md:ml-64"
-                        >
-                            <div className="p-6 bg-slate-50 border-b border-slate-100 flex justify-between items-center">
-                                <h3 className="text-lg font-bold text-emerald-700 flex items-center gap-2">
-                                    <PackageCheck size={24} />
-                                    Confirmar Entrega
-                                </h3>
-                                <button onClick={() => setConfirmInvoice(null)} className="text-slate-400 hover:text-slate-600">
-                                    <X size={24} />
-                                </button>
-                            </div>
-
-                            {(() => {
-                                const totalPaid = confirmInvoice.payment?.amount || confirmInvoice.paidAmount || (confirmInvoice.payments?.reduce((sum: number, p: any) => sum + (Number(p.amount) || 0), 0) || 0);
-                                const remaining = Math.max(0, (confirmInvoice.totalValue || 0) - totalPaid);
-
-                                return (
-                                    <div className="px-8 pb-8 pt-6 space-y-6">
-                                        <div className="p-4 bg-emerald-50 rounded-xl border border-emerald-100 mb-2">
-                                            <p className="text-emerald-800 text-sm font-medium text-center">
-                                                ¿Entregar recibo <b>#{confirmInvoice.ticketNumber}</b>?
-                                                {remaining > 0 && (
-                                                    <span className="block mt-2 font-black animate-pulse text-emerald-700">
-                                                        🚨 SE DEBE PAGAR EL SALDO PENDIENTE 🚨
-                                                    </span>
-                                                )}
-                                            </p>
-                                        </div>
-
-                                        {remaining > 0 && (
-                                            <>
-                                                <div className="space-y-2">
-                                                    <label className="text-sm font-bold text-slate-400 uppercase text-center block">Total a Pagar Ahora</label>
-                                                    <div className="relative">
-                                                        <span className="absolute left-4 top-1/2 -translate-y-1/2 text-emerald-600 text-lg">$</span>
-                                                        <div className="w-full bg-slate-50 border border-slate-200 rounded-2xl pl-4 pr-4 py-4 text-2xl font-bold text-slate-700 text-center">
-                                                            {new Intl.NumberFormat('es-CO').format(remaining)}
-                                                        </div>
-                                                    </div>
-                                                </div>
-                                                <div className="space-y-2">
-                                                    <label className="text-sm font-bold text-slate-400 uppercase text-center block">Método de Pago</label>
-                                                    <div className="grid grid-cols-3 gap-2">
-                                                        {['Efectivo', 'Nequi', 'Daviplata', 'Bancolombia', 'Datafono'].map((method) => (
-                                                            <button
-                                                                key={method}
-                                                                onClick={() => setPaymentMethod(method)}
-                                                                className={`py-2 px-1 rounded-lg text-xs font-bold border transition-all ${paymentMethod === method ? 'bg-emerald-600 text-white border-emerald-600 shadow-md' : 'bg-white text-slate-500 border-slate-200 hover:border-slate-300'}`}
-                                                            >
-                                                                {method}
-                                                            </button>
-                                                        ))}
-                                                    </div>
-                                                </div>
-                                            </>
-                                        )}
-
-                                        <div className="flex gap-3">
-                                            <button
-                                                onClick={() => setConfirmInvoice(null)}
-                                                className="flex-1 bg-slate-100 hover:bg-slate-200 text-slate-600 font-bold py-4 rounded-xl transition-all"
-                                            >
-                                                Cancelar
-                                            </button>
-                                            <button
-                                                onClick={executeDeliver}
-                                                disabled={isSubmitting}
-                                                className="flex-[2] bg-emerald-600 hover:bg-emerald-700 text-white font-bold py-4 rounded-xl shadow-lg shadow-emerald-200 transition-all active:scale-[0.98] disabled:opacity-50 disabled:cursor-not-allowed flex items-center justify-center gap-2"
-                                            >
-                                                {isSubmitting ? 'Procesando...' : (
-                                                    <>
-                                                        <PackageCheck size={20} />
-                                                        {remaining > 0 ? 'Pagar y Entregar' : 'Entregar Recibo'}
-                                                    </>
-                                                )}
-                                            </button>
-                                        </div>
-                                    </div>
-                                );
-                            })()}
-                        </motion.div>
-                    </div>
-                )}
-            </AnimatePresence>
-
             {/* MODAL details */}
             <InvoiceDetailsModal
                 invoice={selectedInvoice}
@@ -397,24 +306,6 @@ export default function DeliveryPage() {
                         setSelectedInvoice(null);
                     }
                 }}
-            // In Delivery view, we ALLOW payment and notes.
-            // We do NOT disable buttons. 
-            // Checks: 'isLogisticsView' disables buttons. So we do NOT pass it, OR we pass a new prop 'isDeliveryView'.
-            // If we don't pass 'isLogisticsView', brand check pops up on close.
-            // User said: "quiero que me salga el de registrar pago... y el de agregar nota".
-            // And explicitly "el de cancelado" (payment status).
-            // If I omit isLogisticsView, brand popup appears.
-            // User probably doesn't want brand check here either (it's for organizers).
-            // So I should pass 'isLogisticsView={true}' to disable popup, BUT I enable Payment/Note manually?
-            // OR I modify Modal to have 'disableBrandCheck' separate from 'hideActions'.
-
-            // DECISION:
-            // I will NOT pass isLogisticsView={true} because the user WANTS Payment interactions ("registrar pago").
-            // BUT the "Brand Check" popup might appear if not verified.
-            // If the item is ready for delivery, it SHOULD have been verified in "Organizar".
-            // If it wasn't, maybe it's good to check?
-            // User didn't complain about brand check here. They complained in "Missing Items".
-            // So I will use standard view (isLogisticsView={false}/undefined) to allow Payment/Notes.
             />
         </div>
     );
