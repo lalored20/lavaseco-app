@@ -108,7 +108,7 @@ export async function POST(req: Request) {
     `,
         messages,
         tools: {
-            run_sql_query: tool({
+            run_sql_query: {
                 description: 'Execute a read-only SQL query on the PostgreSQL database.',
                 parameters: z.object({
                     sql: z.string().describe('The SQL query to execute. Must be a SELECT statement.'),
@@ -136,8 +136,8 @@ export async function POST(req: Request) {
                         return `Database Error: ${error.message}`;
                     }
                 },
-            }),
-            query_vector_store: tool({
+            },
+            query_vector_store: {
                 description: 'Search the knowledge base (manuals, policies) for text answers.',
                 parameters: z.object({
                     query: z.string().describe('The search query for the vector store.')
@@ -146,14 +146,14 @@ export async function POST(req: Request) {
                     // Placeholder: Returing a mock for now until Vector Store is set up
                     return `[Mock Result] Found info on: "${query}". Context: "Lavaseco Orquídeas standard procedure for silk is dry clean only..."`;
                 },
-            }),
-            get_current_time: tool({
+            },
+            get_current_time: {
                 description: 'Get the current server time and date.',
                 parameters: z.object({}),
                 execute: async () => {
                     return new Date().toLocaleString('es-CO', { timeZone: 'America/Bogota' });
                 },
-            }),
+            },
         },
     });
 
