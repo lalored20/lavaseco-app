@@ -114,7 +114,7 @@ export async function POST(req: Request) {
                     sql: z.string().describe('The SQL query to execute. Must be a SELECT statement.'),
                     explanation: z.string().describe('Brief explanation of what this query retrieves.')
                 }),
-                execute: async ({ sql }) => {
+                execute: async ({ sql, explanation }: { sql: string; explanation: string }) => {
                     // SECURITY CHECK: only SELECT allowed
                     if (!/^\s*SELECT/i.test(sql.trim())) {
                         return "ERROR: Only SELECT statements are allowed for safety.";
@@ -142,7 +142,7 @@ export async function POST(req: Request) {
                 parameters: z.object({
                     query: z.string().describe('The search query for the vector store.')
                 }),
-                execute: async ({ query }) => {
+                execute: async ({ query }: { query: string }) => {
                     // Placeholder: Returing a mock for now until Vector Store is set up
                     return `[Mock Result] Found info on: "${query}". Context: "Lavaseco Orquídeas standard procedure for silk is dry clean only..."`;
                 },
