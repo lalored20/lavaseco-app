@@ -7,6 +7,17 @@ import { prisma } from '@/lib/prisma';
 export const maxDuration = 30;
 
 export async function POST(req: Request) {
+    // Verificar si OpenAI está configurado
+    if (!process.env.OPENAI_API_KEY) {
+        return new Response(JSON.stringify({
+            error: 'El asistente de IA no está disponible',
+            message: 'Esta funcionalidad requiere configuración adicional de OpenAI'
+        }), {
+            status: 503,
+            headers: { 'Content-Type': 'application/json' }
+        });
+    }
+
     const { messages } = await req.json();
 
     const result = streamText({
