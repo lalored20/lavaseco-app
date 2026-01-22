@@ -196,7 +196,7 @@ export default function BillingPage() {
                 throw new Error(result.error || "Error al guardar");
             }
 
-            const finalFolio = result.folio || nextFolio;
+            const finalFolio = ('folio' in result && result.folio) ? result.folio : nextFolio;
 
             toast.success(`Factura #${finalFolio} Creada`, {
                 description: result.mode === 'OFFLINE' ? "Guardada en dispositivo (Pendiente de Sync)" : "Guardada y Sincronizada"
