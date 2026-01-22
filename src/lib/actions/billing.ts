@@ -458,7 +458,7 @@ export async function deliverOrder(orderId: string) {
             where: { id: orderId },
             data: {
                 status: 'delivered',
-                // deliveryDate not in schema? We rely on updatedAt or create a log.
+                deliveredDate: new Date(),
             }
         });
 
@@ -468,6 +468,32 @@ export async function deliverOrder(orderId: string) {
     } catch (error) {
         console.error("Error delivering order:", error);
         return { success: false, error: "Failed to deliver order" };
+        return { success: false, error: "Failed to deliver order" };
+    }
+}
+
+export async function cancelOrder(orderId: string) {
+    try {
+        await prisma.order.update({
+            where: { id: orderId },
+            data: {
+                status: 'CANCELADO',
+                paymentStatus: 'CANCELADO', // Ensure payment status also reflects this
+                location: 'CANCELADO' // Optional: Move to a logical "bin"
+            }
+        });
+
+        // Revalidate ALL paths to ensure it disappears/updates everywhere
+        revalidatePath("/dashboard/billing-a/list");
+        revalidatePath("/dashboard/logistics/organize");
+        revalidatePath("/dashboard/logistics/missing");
+        revalidatePath("/dashboard/delivery");
+        revalidatePath("/dashboard/cash");
+
+        return { success: true };
+    } catch (error) {
+        console.error("Error cancelling order:", error);
+        return { success: false, error: "Failed to cancel order" };
     }
 }
 
@@ -798,7 +824,9 @@ export async function upsertInvoicesBulk(invoices: any[]) {
                     status: invoice.orderStatus || invoice.status || 'PENDIENTE', // Careful with 'SYNCED' status from local
                     createdAt: new Date(invoice.createdAt), // Restore original date
                     // If local has dates.delivery use it, otherwise undefined
-                    scheduledDate: invoice.dates?.delivery ? new Date(invoice.dates.delivery) : undefined
+                    scheduledDate: invoice.dates?.delivery ? new Date(invoice.dates.delivery) : undefined,
+                    // FIX: Ensure deliveredDate is synced if present (mapped from deliveryDate or deliveredDate)
+                    deliveredDate: invoice.deliveryDate ? new Date(invoice.deliveryDate) : (invoice.deliveredDate ? new Date(invoice.deliveredDate) : undefined)
                 };
 
                 if (existingOrder) {

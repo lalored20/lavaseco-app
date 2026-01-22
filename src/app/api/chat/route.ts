@@ -1,98 +1,150 @@
-import { streamText, tool } from 'ai';
 import { openai } from '@ai-sdk/openai';
+import { streamText, tool } from 'ai';
 import { z } from 'zod';
-import { CodeExecution } from '@/lib/brain/code_execution';
-import { RemoteGraph } from '@/lib/brain/graph';
-import { NextResponse } from 'next/server';
+import { prisma } from '@/lib/prisma';
 
 // Allow streaming responses up to 30 seconds
 export const maxDuration = 30;
 
-// Force Node.js runtime for E2B (Code Interpreter) as it uses native Node modules
-export const runtime = 'nodejs';
-
 export async function POST(req: Request) {
-    try {
-        const { messages } = await req.json();
+    const { messages } = await req.json();
 
-        const codeExecution = new CodeExecution();
-        const graph = new RemoteGraph();
-
-        // specific converter because convertToCoreMessages is missing in some builds
-        const coreMessages = messages.map((m: any) => {
-            if (m.role === 'user') return { role: 'user', content: m.content };
-            if (m.role === 'assistant') {
-                const content: any[] = [];
-                if (m.content) content.push({ type: 'text', text: m.content });
-                if (m.toolInvocations) {
-                    m.toolInvocations.forEach((ti: any) => {
-                        content.push({
-                            type: 'tool-call',
-                            toolCallId: ti.toolCallId,
-                            toolName: ti.toolName,
-                            args: ti.args
-                        });
-                    });
-                }
-                return { role: 'assistant', content };
-            }
-            if (m.role === 'tool') {
-                return {
-                    role: 'tool',
-                    content: [{
-                        type: 'tool-result',
-                        toolCallId: m.toolCallId,
-                        toolName: m.toolName,
-                        result: m.content
-                    }]
-                }
-            }
-            return { role: 'user', content: m.content };
-        }).filter((m: any) => m !== null);
-
-
-        const result = await streamText({
-            model: openai('gpt-4o'),
-            messages: coreMessages as any, // Cast to any to avoid strict type checks if CoreMessage type is tricky
-            system: `You are a helpful assistant for the Lavaseco Orquídeas application.
-      
-      Time: ${new Date().toLocaleString('es-CO')}
-      
-      You have access to tools:
-      - executePython: For math, data analysis, or running code snippets.
-      - saveMemory: To remember important facts, preferences, or errors for the long run.
-      
-      Be concise and helpful.`,
-            tools: {
-                executePython: tool({
-                    description: 'Execute Python code in a secure sandbox. Use this for complex calculations, date manipulations, or data analysis.',
-                    parameters: z.object({
-                        code: z.string().describe('The python code to execute'),
-                    }) as any,
-                    execute: async ({ code }: { code: string }) => {
-                        return await codeExecution.executePython(code);
-                    },
-                } as any),
-                saveMemory: tool({
-                    description: 'Save a concept, fact, or entity to the long-term memory graph.',
-                    parameters: z.object({
-                        name: z.string().describe('The name of the concept or entity'),
-                        type: z.enum([
-                            'Concept', 'Technology', 'Problem', 'Solution', 'Pattern',
-                            'Rule', 'Error', 'Project', 'Preference', 'Client', 'Order'
-                        ]).optional().describe('The type of the node. Defaults to Concept.'),
-                        properties: z.record(z.string(), z.any()).optional().describe('Additional properties or metadata'),
-                    }) as any,
-                    execute: async ({ name, type = 'Concept', properties = {} }: { name: string, type?: string, properties?: any }) => {
-                        return await graph.addNode(name, type as any, properties);
-                    },
-                } as any)
-            },
-        });
-
-        return result.toTextStreamResponse();
-    } catch (error: any) {
-        console.error("Chat API Error:", error);
-        return NextResponse.json({ error: error.message }, { status: 500 });
+    const result = streamText({
+        model: openai('gpt-4o'),
+        system: `You are the "Orquídeas AI", an expert business analyst and assistant for Lavaseco Orquídeas.
+    
+    You have direct read-access to the PostgreSQL database via the \`run_sql_query\` tool.
+    You have access to unstructured knowledge (manuals, policies) via the \`query_vector_store\` tool.
+    
+    ## Database Schema
+    
+    model User {
+      id String @id
+      name String?
+      role Role @default(STAFF)
     }
+
+    model Client {
+      id String @id 
+      cedula String? @unique
+      name String
+      phone String?
+      address String?
+      orders Order[]
+    }
+
+    model Order {
+      id String @id
+      ticketNumber Int // Use this for "Order #123"
+      status String // 'PENDIENTE', 'EN_PROCESO', 'delivered', 'CANCELADO', 'PROBLEMA'
+      location String
+      totalValue Float
+      paidAmount Float
+      paymentStatus String // 'PENDIENTE', 'PAGADO', 'ABONO', 'CANCELADO'
+      consumption Date // createdAt
+      scheduledDate DateTime?
+      deliveredDate DateTime?
+      client Client
+      items OrderItem[]
+      payments PaymentLog[]
+    }
+
+    model OrderItem {
+      id String @id
+      quantity Int
+      type String // Description of garment e.g. "Pantalon", "Camisa"
+      color String?
+      notes String? // Defects like "Mancha", "Roto"
+      price Float
+    }
+
+    model PaymentLog {
+      amount Float
+      type String // 'ABONO', 'CANCELACION'
+      note String? // e.g. "Abono registrado (Efectivo)"
+      createdAt DateTime
+    }
+
+    model Expense {
+      description String
+      amount Float
+      category String?
+      date DateTime
+    }
+
+    model DailyGarmentCount {
+      date DateTime @unique
+      plantCount Int
+      homeCount Int
+      plantNotes String?
+      homeNotes String?
+    }
+
+    ## Guidelines
+    
+    1. **SQL Queries**: ALWAYS prioritize using \`run_sql_query\` for questions about numbers, orders, money, or clients.
+       - READ ONLY. Do not ever output INSERT/UPDATE/DELETE.
+       - If asked "How much did we make today?", query \`PaymentLog\` filtering by \`createdAt\`.
+       - If asked "Where is order 1045?", query \`Order\` by \`ticketNumber\`.
+    
+    2. **Unstructured Data**: Use \`query_vector_store\` for questions about cleaning processes, prices (if not in DB), or general policies.
+    
+    3. **Tone**: Professional, concise, and helpful. You are talking to the business owner or staff.
+    
+    4. **Safety**: If a user asks to delete or modify data, respectfully decline and say you are read-only.
+    
+    5. **Current Time**: Always get current time if the user asks "today", "yesterday", or assumes a date context.
+    `,
+        messages,
+        tools: {
+            run_sql_query: tool({
+                description: 'Execute a read-only SQL query on the PostgreSQL database.',
+                parameters: z.object({
+                    sql: z.string().describe('The SQL query to execute. Must be a SELECT statement.'),
+                    explanation: z.string().describe('Brief explanation of what this query retrieves.')
+                }),
+                execute: async ({ sql }) => {
+                    // SECURITY CHECK: only SELECT allowed
+                    if (!/^\s*SELECT/i.test(sql.trim())) {
+                        return "ERROR: Only SELECT statements are allowed for safety.";
+                    }
+                    if (/;.*(INSERT|UPDATE|DELETE|DROP|ALTER|TRUNCATE)/i.test(sql)) {
+                        return "ERROR: Destructive commands detected and blocked.";
+                    }
+
+                    try {
+                        // Execute raw SQL
+                        const result = await prisma.$queryRawUnsafe(sql);
+                        // Convert BigInt to string for JSON serialization
+                        return JSON.parse(JSON.stringify(result, (key, value) =>
+                            typeof value === 'bigint'
+                                ? value.toString()
+                                : value // return everything else unchanged
+                        ));
+                    } catch (error: any) {
+                        return `Database Error: ${error.message}`;
+                    }
+                },
+            }),
+            query_vector_store: tool({
+                description: 'Search the knowledge base (manuals, policies) for text answers.',
+                parameters: z.object({
+                    query: z.string().describe('The search query for the vector store.')
+                }),
+                execute: async ({ query }) => {
+                    // Placeholder: Returing a mock for now until Vector Store is set up
+                    return `[Mock Result] Found info on: "${query}". Context: "Lavaseco Orquídeas standard procedure for silk is dry clean only..."`;
+                },
+            }),
+            get_current_time: tool({
+                description: 'Get the current server time and date.',
+                parameters: z.object({}),
+                execute: async () => {
+                    return new Date().toLocaleString('es-CO', { timeZone: 'America/Bogota' });
+                },
+            }),
+        },
+    });
+
+    return result.toDataStreamResponse();
 }

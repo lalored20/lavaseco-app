@@ -746,6 +746,12 @@ export const generateShiftReportPDF = async (data: ShiftReportData, autoDownload
                         // Trigger Print
                         iframe.contentWindow?.print();
 
+                        // Fallback: Resolve strictly if onafterprint fails to fire
+                        // We set this AFTER print call so it queues after the blocking dialog closes (if blocking)
+                        setTimeout(() => {
+                            resolve(pdfBlob);
+                        }, 5000);
+
                         // Fallback: If onafterprint doesn't fire (some browsers), resolve after a generous timeout (e.g., 5 mins)
                         // or just rely on the user to interact. Given the user MUST print, we prefer waiting.
                     }, 500);

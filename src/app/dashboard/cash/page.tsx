@@ -1089,27 +1089,8 @@ export default function CashRegisterPage() {
                                                         onClick={async () => {
                                                             setIsLoading(true);
 
-                                                            // 1. Generate and Download PDF Report
-                                                            try {
-                                                                await generateShiftReportPDF({
-                                                                    turnNumber: summary?.turnNumber || 0,
-                                                                    startDate: summary?.startDate || '',
-                                                                    endDate: summary?.endDate || '',
-                                                                    totalCash: summary?.totalCash || 0,
-                                                                    totalDigital: summary?.totalDigital || 0,
-                                                                    totalExpenses: summary?.totalExpenses || 0,
-                                                                    netCash: summary?.netCash || 0,
-                                                                    transactions: summary?.transactions || [],
-                                                                    expenses: summary?.expenses || [],
-                                                                    digitalBreakdown: summary?.digitalBreakdown,
-                                                                    reportTitle: viewMode === 'general' ? 'REPORTE GENERAL DEL DÍA' : undefined
-                                                                }, true);
-                                                            } catch (err) {
-                                                                console.error("Error generating PDF:", err);
-                                                                toast.error("Error al generar el reporte PDF");
-                                                            }
-
-                                                            // 2. Proceed with Closing
+                                                            // 1. Close Shift FIRST (Critical Data)
+                                                            let closingSuccess = false;
                                                             try {
                                                                 const res = await closeCashShift({
                                                                     turnNumber: (summary?.turnNumber || 0),
@@ -1120,20 +1101,48 @@ export default function CashRegisterPage() {
                                                                 });
 
                                                                 if (res.success) {
+                                                                    closingSuccess = true;
                                                                     toast.success("Turno cerrado correctamente");
-                                                                    setIsClosingModalOpen(false);
-                                                                    setIsConfirmingClose(false);
-                                                                    if (typeof window !== 'undefined') {
-                                                                        window.location.reload();
-                                                                    }
                                                                 } else {
                                                                     toast.error(res.error || "Error al cerrar turno");
+                                                                    setIsLoading(false);
+                                                                    return; // Stop flow
                                                                 }
                                                             } catch (error) {
                                                                 console.error(error);
                                                                 toast.error("Error de conexión");
-                                                            } finally {
                                                                 setIsLoading(false);
+                                                                return; // Stop flow
+                                                            }
+
+                                                            // 2. Generate PDF Report (Only if closed successfully)
+                                                            if (closingSuccess) {
+                                                                try {
+                                                                    await generateShiftReportPDF({
+                                                                        turnNumber: summary?.turnNumber || 0,
+                                                                        startDate: summary?.startDate || '',
+                                                                        endDate: summary?.endDate || '',
+                                                                        totalCash: summary?.totalCash || 0,
+                                                                        totalDigital: summary?.totalDigital || 0,
+                                                                        totalExpenses: summary?.totalExpenses || 0,
+                                                                        netCash: summary?.netCash || 0,
+                                                                        transactions: summary?.transactions || [],
+                                                                        expenses: summary?.expenses || [],
+                                                                        digitalBreakdown: summary?.digitalBreakdown,
+                                                                        reportTitle: viewMode === 'general' ? 'REPORTE GENERAL DEL DÍA' : undefined
+                                                                    }, true);
+                                                                } catch (err) {
+                                                                    console.error("Error generating PDF:", err);
+                                                                    toast.error("Error al generar el reporte PDF (pero el turno se cerró)");
+                                                                }
+
+                                                                // 3. Finalize
+                                                                setIsClosingModalOpen(false);
+                                                                setIsConfirmingClose(false);
+                                                                if (typeof window !== 'undefined') {
+                                                                    await new Promise(r => setTimeout(r, 1000));
+                                                                    window.location.reload();
+                                                                }
                                                             }
                                                         }}
                                                         className="flex-1 bg-rose-600 hover:bg-rose-700 text-white py-2 rounded-lg font-bold shadow-md shadow-rose-200 transition-colors flex items-center justify-center gap-2 text-sm"

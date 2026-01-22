@@ -3,113 +3,71 @@
 
 import React, { useState, useEffect, useRef } from "react";
 import { useChat } from "@ai-sdk/react";
-import { GeminiInput } from "./GeminiInput";
 import { AnimatePresence, motion, useDragControls } from "framer-motion";
-import { Bot, ChevronDown, ChevronUp, Maximize2, Minimize2, X, Terminal } from "lucide-react";
-import { useChatHistory } from "@/hooks/useChatHistory";
+import { Bot, X, Sparkles, Send, WifiOff, Loader2 } from "lucide-react";
 import { toast } from "sonner";
 
 export function AssistantOverlay() {
     const [isOpen, setIsOpen] = useState(false);
-    const [isExpanded, setIsExpanded] = useState(false);
+    const [isOnline, setIsOnline] = useState(true);
+    const dragControls = useDragControls();
+    const scrollRef = useRef<HTMLDivElement>(null);
 
-    // Persistent History Hook
-    const {
-        currentSessionId,
-        createSession,
-        saveMessageToSession,
-        loadSession,
-        setCurrentSessionId
-    } = useChatHistory();
+    // Initial message
+    const initialMessages = [
+        {
+            id: 'welcome',
+            role: 'assistant' as const,
+            content: 'Hola, soy la IA de Lavaseco. Puedo consultar ventas, clientes y procedimientos de planta. ¿En qué te ayudo?'
+        }
+    ];
 
-    const { messages, isLoading } = useChat({
+    const { messages, input, handleInputChange, handleSubmit, isLoading, error } = useChat({
         api: "/api/chat",
-        onFinish: (message: any) => {
-            if (currentSessionId) {
-                saveMessageToSession(currentSessionId, message);
-            }
-        },
+        initialMessages: initialMessages,
         onError: (err: any) => {
-            toast.error("Error de conexión con IA");
-            console.error(err);
+            console.error("AI Error:", err);
+            toast.error("Error conectando con IA");
         }
-    } as any) as any;
+    });
 
-    // Auto-create session on first message
-    const handleSend = async (text: string, files: File[]) => {
-        if (!text.trim() && files.length === 0) return;
+    // Offline Detection
+    useEffect(() => {
+        setIsOnline(navigator.onLine);
+        const handleOnline = () => setIsOnline(true);
+        const handleOffline = () => setIsOnline(false);
+        window.addEventListener('online', handleOnline);
+        window.addEventListener('offline', handleOffline);
+        return () => {
+            window.removeEventListener('online', handleOnline);
+            window.removeEventListener('offline', handleOffline);
+        };
+    }, []);
 
-        let sessionId = currentSessionId;
-        if (!sessionId) {
-            sessionId = createSession(text);
+    // Scroll to bottom
+    useEffect(() => {
+        if (scrollRef.current) {
+            scrollRef.current.scrollTop = scrollRef.current.scrollHeight;
         }
+    }, [messages, isLoading, isOpen]);
 
-        // Optimistically save user message
-        const userMsg = { id: Date.now().toString(), role: 'user', content: text };
-        saveMessageToSession(sessionId!, userMsg);
-
-        // Convert files to base64 if needed in future (Vercel AI SDK handles attachments differently in new versions)
-        // For now, passing text. Files support depends on your route logic (route.ts needs to handle images).
-
-        // Trigger submit
-        // useChat handles submission via form event or explicit append
-        // We simulate the event or update the input and submit
-
-        // Hack to use Vercel AI SDK with custom input component:
-        // formatting a synthetic event or using append()
-
-        // Better approach with Vercel AI SDK 'append':
-        // await append({ role: 'user', content: text });
-        // But we need to use the hook's native `append`.
-        // Let's assume handleSubmit works if we set input? No, handleSubmit expects event.
-        // We'll use `append` if available, or just reconstruct logic.
-        // Actually, Vercel AI SDK `handleSubmit` is for forms. 
-        // We'll use `append` from useChat to manually send.
-
-        // Wait, I need `append` from useChat.
-        // Let's refactor destructuring above to include append.
+    const onSubmit = (e: React.FormEvent) => {
+        e.preventDefault();
+        if (!isOnline) {
+            toast.error("Sin conexión a internet");
+            return;
+        }
+        handleSubmit(e);
     };
 
-    // Correction: I need to use `append` from useChat
-    // But since I can't change the hook call in this file easily without seeing the import...
-    // I will write the component to use `append` correctly.
+    // If offline, we can hide the button or just show status. User requested "Graceful Degradation".
+    // We will keep the button but show offline state inside.
 
-    return (
-        <OverlayUI
-            isOpen={isOpen}
-            setIsOpen={setIsOpen}
-            messages={messages}
-            isLoading={isLoading}
-            onSend={handleSend} // This needs `append`
-        />
-    )
-}
 
-// Inner Component to safely use hook
-function OverlayUI({ isOpen, setIsOpen, messages, isLoading, onSend }: any) {
-    const { append: sendMessage, messages: chatMessages, isLoading: chatLoading, stop } = useChat({
-        api: "/api/chat",
-        onError: (err: any) => toast.error("Error: " + err.message)
-    } as any) as any;
-
-    const dragControls = useDragControls();
-
-    const messagesEndRef = useRef<HTMLDivElement>(null);
-
-    useEffect(() => {
-        messagesEndRef.current?.scrollIntoView({ behavior: "smooth" });
-    }, [chatMessages]);
-
-    const handleCustomSend = async (text: string, files: File[]) => {
-        // Files logic would go here (upload to blob -> get url -> append to message)
-        // For now, pure text or text + file names
-        const fileNames = files.map(f => `[Archivo: ${f.name}]`).join('\n');
-        const fullContent = text + (fileNames ? `\n${fileNames}` : "");
-
-        await sendMessage({
-            role: 'user',
-            content: fullContent
-        });
+    const safeHandleInputChange = (e: React.ChangeEvent<HTMLInputElement>) => {
+        if (handleInputChange) {
+            handleInputChange(e);
+        }
     };
 
     return (
@@ -118,7 +76,7 @@ function OverlayUI({ isOpen, setIsOpen, messages, isLoading, onSend }: any) {
             dragMomentum={false}
             dragControls={dragControls}
             dragListener={false}
-            className="fixed bottom-6 right-12 z-50 flex flex-col items-end pointer-events-none"
+            className="fixed bottom-6 right-6 z-[100] flex flex-col items-end pointer-events-none"
         >
             <AnimatePresence>
                 {isOpen && (
@@ -126,75 +84,112 @@ function OverlayUI({ isOpen, setIsOpen, messages, isLoading, onSend }: any) {
                         initial={{ opacity: 0, scale: 0.9, y: 20 }}
                         animate={{ opacity: 1, scale: 1, y: 0 }}
                         exit={{ opacity: 0, scale: 0.9, y: 20 }}
-                        className="w-[400px] max-w-[90vw] bg-white/95 dark:bg-zinc-900/95 backdrop-blur-xl border border-zinc-200 dark:border-zinc-800 shadow-2xl rounded-2xl overflow-hidden pointer-events-auto flex flex-col mb-4 origin-bottom-right"
-                        style={{ height: '600px', maxHeight: '70vh' }}
+                        className="w-[380px] max-w-[90vw] bg-white backdrop-blur-xl border border-orchid-100 shadow-2xl rounded-2xl overflow-hidden pointer-events-auto flex flex-col mb-4 origin-bottom-right"
+                        style={{ height: '550px', maxHeight: '70vh' }}
                     >
                         {/* Header */}
-                        <div className="flex items-center justify-between px-4 py-3 border-b border-zinc-100 dark:border-zinc-800 bg-white/50 dark:bg-zinc-900/50">
-                            <div className="flex items-center gap-2 text-zinc-700 dark:text-zinc-200">
-                                <Bot size={18} className="text-blue-500" />
-                                <span className="font-bold text-sm">Lavaseco AI</span>
-                                {chatLoading && <span className="text-[10px] text-blue-500 animate-pulse bg-blue-50 px-2 py-0.5 rounded-full">Pensando...</span>}
+                        <div className="flex items-center justify-between px-4 py-3 border-b border-orchid-100 bg-orchid-50/50">
+                            <div className="flex items-center gap-2 text-slate-700">
+                                <div className="w-8 h-8 rounded-full bg-orchid-100 flex items-center justify-center text-orchid-600">
+                                    <Sparkles size={16} />
+                                </div>
+                                <div>
+                                    <span className="font-bold text-sm block">Orquídeas AI</span>
+                                    {isOnline ? (
+                                        <span className="text-[10px] text-green-600 flex items-center gap-1">
+                                            <span className="w-1.5 h-1.5 rounded-full bg-green-500 animate-pulse" /> En línea
+                                        </span>
+                                    ) : (
+                                        <span className="text-[10px] text-red-500 flex items-center gap-1">
+                                            <span className="w-1.5 h-1.5 rounded-full bg-red-500" /> Offline
+                                        </span>
+                                    )}
+                                </div>
                             </div>
-                            <div className="flex items-center gap-1">
-                                <button onClick={() => setIsOpen(false)} className="p-1.5 hover:bg-zinc-100 dark:hover:bg-zinc-800 rounded-full transition-colors">
-                                    <X size={18} className="text-zinc-500" />
-                                </button>
-                            </div>
+                            <button onClick={() => setIsOpen(false)} className="p-1.5 hover:bg-slate-100 rounded-full transition-colors text-slate-400">
+                                <X size={20} />
+                            </button>
                         </div>
 
                         {/* Chat Area */}
-                        <div className="flex-1 overflow-y-auto p-4 space-y-4 bg-zinc-50/50 dark:bg-zinc-950/50">
-                            {chatMessages.length === 0 ? (
-                                <div className="h-full flex flex-col items-center justify-center text-zinc-400 opacity-50 space-y-2">
-                                    <Bot size={32} />
-                                    <p className="text-xs text-center px-4">Estoy listo para ayudarte con el sistema.</p>
-                                </div>
-                            ) : (
-                                chatMessages.map((m: any) => (
-                                    <div key={m.id} className={`flex ${m.role === 'user' ? 'justify-end' : 'justify-start'}`}>
-                                        <div className={`max-w-[85%] rounded-2xl px-3 py-2 text-sm ${m.role === 'user'
-                                            ? 'bg-blue-600 text-white rounded-br-none shadow-md shadow-blue-500/10'
-                                            : 'bg-white dark:bg-zinc-800 text-zinc-800 dark:text-zinc-200 rounded-bl-none shadow-sm border border-zinc-100 dark:border-zinc-700'
-                                            }`}>
-                                            <p className="whitespace-pre-wrap leading-relaxed">{m.content}</p>
-                                        </div>
+                        <div className="flex-1 overflow-y-auto p-4 space-y-4 bg-slate-50/30" ref={scrollRef}>
+                            {messages.map((m) => (
+                                <div key={m.id} className={`flex ${m.role === 'user' ? 'justify-end' : 'justify-start'}`}>
+                                    <div className={`max-w-[85%] rounded-2xl px-4 py-2.5 text-sm shadow-sm ${m.role === 'user'
+                                        ? 'bg-slate-800 text-white rounded-br-none'
+                                        : 'bg-white text-slate-700 border border-slate-100 rounded-bl-none'
+                                        }`}>
+                                        <div className="whitespace-pre-wrap leading-relaxed">{m.content}</div>
+                                        {/* Tool Feedback */}
+                                        {m.toolInvocations?.map((toolCall) => (
+                                            <div key={toolCall.toolCallId} className="mt-2 pt-2 border-t border-white/10 text-xs opacity-70">
+                                                <div className="flex items-center gap-1 font-mono uppercase">
+                                                    <Sparkles size={10} /> {toolCall.toolName}
+                                                </div>
+                                            </div>
+                                        ))}
                                     </div>
-                                ))
+                                </div>
+                            ))}
+
+                            {isLoading && (
+                                <div className="flex justify-start">
+                                    <div className="bg-white px-4 py-2 rounded-2xl rounded-bl-none border border-slate-100 shadow-sm flex items-center gap-2">
+                                        <Loader2 size={16} className="text-orchid-500 animate-spin" />
+                                        <span className="text-xs text-slate-400">Analizando...</span>
+                                    </div>
+                                </div>
                             )}
-                            <div ref={messagesEndRef} />
+
+                            {!isOnline && (
+                                <div className="flex justify-center my-2">
+                                    <span className="bg-red-50 text-red-500 text-xs px-2 py-1 rounded-full flex items-center gap-1">
+                                        <WifiOff size={12} /> Sin conexión
+                                    </span>
+                                </div>
+                            )}
                         </div>
 
                         {/* Input Area */}
-                        <div className="p-3 bg-white dark:bg-zinc-900 border-t border-zinc-100 dark:border-zinc-800">
-                            <GeminiInput onSend={handleCustomSend} isThinking={chatLoading} placeholder="Escribe..." className="shadow-none border-none bg-zinc-100 dark:bg-zinc-800 rounded-xl" />
+                        <div className="p-3 bg-white border-t border-slate-100">
+                            <form onSubmit={onSubmit} className="relative flex items-center gap-2">
+                                <input
+                                    value={input || ''}
+                                    onChange={safeHandleInputChange}
+                                    disabled={!isOnline || isLoading}
+                                    placeholder={isOnline ? "Escribe tu consulta..." : "Sin conexión"}
+                                    className="flex-1 bg-slate-50 border border-slate-200 text-slate-800 text-sm rounded-xl px-4 py-3 focus:outline-none focus:ring-2 focus:ring-orchid-500/20 focus:border-orchid-500 transition-all disabled:opacity-50 disabled:cursor-not-allowed"
+                                />
+                                <button
+                                    type="submit"
+                                    disabled={!(input || '').trim() || !isOnline || isLoading}
+                                    className="p-3 bg-slate-900 text-white rounded-xl hover:bg-slate-800 disabled:opacity-50 disabled:cursor-not-allowed transition-colors shadow-lg shadow-slate-900/10"
+                                >
+                                    <Send size={18} />
+                                </button>
+                            </form>
                         </div>
                     </motion.div>
                 )}
             </AnimatePresence>
 
-            {/* Toggle Button (Always Visible) */}
+            {/* Toggle Button */}
             <motion.div
-                layout
                 className="pointer-events-auto"
                 onPointerDown={(e) => dragControls.start(e)}
                 style={{ touchAction: "none" }}
             >
-                <button
-                    onClick={() => setIsOpen(!isOpen)}
-                    className={`w-14 h-14 rounded-full shadow-2xl flex items-center justify-center transition-all duration-300 hover:scale-110 active:scale-95 relative group ${isOpen ? 'bg-zinc-800 rotate-90' : 'bg-slate-900'}`}
-                >
-                    <AnimatePresence mode="wait">
-                        {isOpen ? (
-                            <X key="close" size={24} className="text-white" />
-                        ) : (
-                            <Bot key="bot" size={28} className="text-blue-400 group-hover:text-blue-300 transition-colors" />
-                        )}
-                    </AnimatePresence>
-
-                    {/* Status Dot */}
-                    {!isOpen && <div className="absolute top-0 right-0 w-3 h-3 bg-green-500 rounded-full border-2 border-white dark:border-zinc-900 animate-pulse" />}
-                </button>
+                {!isOpen ? (
+                    <button
+                        onClick={() => setIsOpen(true)}
+                        className={`w-14 h-14 rounded-full shadow-2xl shadow-orchid-500/30 flex items-center justify-center transition-all duration-300 hover:scale-105 active:scale-95 relative group bg-slate-900 text-white`}
+                    >
+                        <Bot size={28} className="text-white group-hover:rotate-12 transition-transform" />
+                        {/* Notify badge if online */}
+                        {isOnline && <span className="absolute top-0 right-0 w-3.5 h-3.5 bg-green-500 border-2 border-white rounded-full animate-bounce" />}
+                        {!isOnline && <span className="absolute top-0 right-0 w-3.5 h-3.5 bg-red-500 border-2 border-white rounded-full" />}
+                    </button>
+                ) : null}
             </motion.div>
         </motion.div>
     );

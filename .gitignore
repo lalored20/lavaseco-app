@@ -16,6 +16,9 @@
 # next.js
 /.next/
 /out/
+.git
+.venv
+__pycache__
 
 # production
 /build
@@ -47,3 +50,10 @@ next-env.d.ts
 BITACORA_DEL_SISTEMA.log
 prisma/dev.db
 prisma/dev.db-journal
+
+# Memory System & Embeddings (Large Files)
+codebase_embeddings.json
+codebase_map.json
+gcloud_key.json
+sync_log.json
+omissions_report.json

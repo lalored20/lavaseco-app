@@ -177,3 +177,13 @@ model AllowedAdmin {
   addedBy   String?  // Correo de quien lo agregó
   createdAt DateTime @default(now())
 }
+
+model DailyGarmentCount {
+  id         String   @id @default(uuid())
+  date       DateTime @unique @default(now()) // Unique constraint ensures one entry per day (normalized)
+  plantCount Int      @default(0)
+  homeCount  Int      @default(0)
+  plantNotes String?
+  homeNotes  String?
+  updatedAt  DateTime @updatedAt
+}

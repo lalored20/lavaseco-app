@@ -48,6 +48,27 @@ async function main() {
             console.log("✅ CashShift FK added");
         } catch (e) { console.log("⚠️ CashShift FK skipped:", e.message.split('\n')[0]); }
 
+        // 5. Create DailyGarmentCount Table
+        try {
+            await prisma.$executeRawUnsafe(`
+                CREATE TABLE IF NOT EXISTS "DailyGarmentCount" (
+                    "id" TEXT NOT NULL,
+                    "date" TIMESTAMP(3) NOT NULL DEFAULT CURRENT_TIMESTAMP,
+                    "plantCount" INTEGER NOT NULL DEFAULT 0,
+                    "homeCount" INTEGER NOT NULL DEFAULT 0,
+                    "updatedAt" TIMESTAMP(3) NOT NULL,
+
+                    CONSTRAINT "DailyGarmentCount_pkey" PRIMARY KEY ("id")
+                );
+            `);
+            console.log("✅ Table DailyGarmentCount created");
+        } catch (e) { console.log("⚠️ Table DailyGarmentCount skipped/failed:", e.message.split('\n')[0]); }
+
+        try {
+            await prisma.$executeRawUnsafe(`CREATE UNIQUE INDEX IF NOT EXISTS "DailyGarmentCount_date_key" ON "DailyGarmentCount"("date");`);
+            console.log("✅ Index DailyGarmentCount_date_key created");
+        } catch (e) { console.log("⚠️ Index DailyGarmentCount_date_key skipped:", e.message.split('\n')[0]); }
+
         console.log("🏁 Migration attempts finished.");
 
     } catch (e) {

@@ -63,6 +63,7 @@ export default function DashboardLayout({ children }: { children: React.ReactNod
             children: [
                 { name: 'Organizar Entrada', href: '/dashboard/logistics/organize' },
                 { name: 'Prendas Faltantes', href: '/dashboard/logistics/missing' },
+                { name: 'Número de Prendas', href: '/dashboard/logistics/garment-counts' },
             ]
         },
         {
