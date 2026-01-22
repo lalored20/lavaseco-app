@@ -204,7 +204,7 @@ export default function BillingPage() {
 
             try {
                 const pdfBlob = await generateInvoicePDF({
-                    ticketNumber: finalFolio,
+                    ticketNumber: Number(finalFolio) || 0,
                     client: {
                         name: clientName, // Use state
                         cedula: clientCedula,
