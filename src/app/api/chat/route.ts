@@ -108,7 +108,7 @@ export async function POST(req: Request) {
     `,
         messages,
         tools: {
-            // @ts-ignore - Bypassing tool type mismatch for production build
+            // @ts-ignore - Bypassing tool type mismatch for production
             run_sql_query: tool({
                 description: 'Execute a read-only SQL query on the PostgreSQL database.',
                 parameters: z.object({
@@ -125,37 +125,35 @@ export async function POST(req: Request) {
                     }
 
                     try {
-                        // Execute raw SQL
                         const result = await prisma.$queryRawUnsafe(sql);
-                        // Convert BigInt to string for JSON serialization
                         return JSON.parse(JSON.stringify(result, (key, value) =>
-                            typeof value === 'bigint'
-                                ? value.toString()
-                                : value // return everything else unchanged
+                            typeof value === 'bigint' ? value.toString() : value
                         ));
                     } catch (error: any) {
                         return `Database Error: ${error.message}`;
                     }
                 },
-                // @ts-ignore
-                query_vector_store: tool({
-                    description: 'Search the knowledge base (manuals, policies) for text answers.',
-                    parameters: z.object({
-                        query: z.string().describe('The search query for the vector store.')
-                    }),
-                    execute: async ({ query }: { query: string }) => {
-                        // Placeholder: Returing a mock for now until Vector Store is set up
-                        return `[Mock Result] Found info on: "${query}". Context: "Lavaseco Orquídeas standard procedure for silk is dry clean only..."`;
-                        // @ts-ignore
-                        get_current_time: tool({
-                            description: 'Get the current server time and date.',
-                            parameters: z.object({}),
-                            execute: async () => {
-                                return new Date().toLocaleString('es-CO', { timeZone: 'America/Bogota' });
-                            },
-                        },
+            }),
+            // @ts-ignore
+            query_vector_store: tool({
+                description: 'Search the knowledge base (manuals, policies) for text answers.',
+                parameters: z.object({
+                    query: z.string().describe('The search query for the vector store.')
+                }),
+                execute: async ({ query }: { query: string }) => {
+                    return `[Mock Result] Found info on: "${query}". Context: "Standard procedure..."`;
+                },
+            }),
+            // @ts-ignore
+            get_current_time: tool({
+                description: 'Get the current server time and date.',
+                parameters: z.object({}),
+                execute: async () => {
+                    return new Date().toLocaleString('es-CO', { timeZone: 'America/Bogota' });
+                },
+            }),
         },
-                });
+    });
 
-                return result.toDataStreamResponse();
-            }
+    return result.toDataStreamResponse();
+}
