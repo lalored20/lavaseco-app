@@ -1,7 +1,12 @@
 
-import { Resend } from 'resend';
-
-const resend = new Resend(process.env.RESEND_API_KEY);
+// Lazy load Resend only when needed and API key exists
+function getResendClient() {
+  if (!process.env.RESEND_API_KEY) {
+    return null;
+  }
+  const { Resend } = require('resend');
+  return new Resend(process.env.RESEND_API_KEY);
+}
 
 export async function sendVerificationEmail(to: string, code: string) {
   // ---------------------------------------------------------
@@ -20,9 +25,15 @@ export async function sendVerificationEmail(to: string, code: string) {
   }
 
   try {
+    const resend = getResendClient();
+    if (!resend) {
+      console.log("ℹ️ Resend client not available");
+      return true;
+    }
+
     const { data, error } = await resend.emails.send({
-      from: 'onboarding@resend.dev', // Simplificado para evitar errores de validación
-      to: [to], // Solo funcionará si 'to' es el email registrado en Resend (o dominio verificado en el futuro)
+      from: 'onboarding@resend.dev',
+      to: [to],
       subject: '🔐 Tu Código de Acceso - Lavaseco Orquídeas',
       html: `
         <div style="font-family: Arial, sans-serif; max-width: 600px; margin: 0 auto; padding: 20px; border: 1px solid #eee; border-radius: 10px; background-color: #fbf7ff;">
@@ -43,7 +54,6 @@ export async function sendVerificationEmail(to: string, code: string) {
 
     if (error) {
       console.error("❌ Error de Resend:", error);
-      // No retornamos false, dejamos que pase con el log de consola por si acaso
       return true;
     }
 
