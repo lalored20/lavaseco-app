@@ -9,7 +9,7 @@ const withPWA = require("@ducanh2912/next-pwa").default({
 });
 
 const nextConfig: NextConfig = {
-  /* config options here */
+  output: 'standalone', // Required for Cloud Run
   serverExternalPackages: ['@e2b/code-interpreter'],
 };
 
