@@ -1,6 +1,7 @@
 
 import { NextResponse } from 'next/server';
 import { prisma } from '@/lib/prisma';
+import { sendVerificationEmail } from '@/lib/email';
 
 function generateCode() {
     return Math.floor(100000 + Math.random() * 900000).toString();

@@ -13,6 +13,12 @@ export async function sendVerificationEmail(to: string, code: string) {
   console.log(`👉 CÓDIGO: ${code}`);
   console.log("=================================================");
 
+  // Si no hay API KEY, solo logueamos (útil para despliegue base sin correos)
+  if (!process.env.RESEND_API_KEY) {
+    console.log("ℹ️ Saltando envío de correo (RESEND_API_KEY no configurada)");
+    return true;
+  }
+
   try {
     const { data, error } = await resend.emails.send({
       from: 'onboarding@resend.dev', // Simplificado para evitar errores de validación
